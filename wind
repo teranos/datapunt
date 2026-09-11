@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Evaluate the schema and put it where a string import can read it.
+set -e
+cd "$(dirname "$0")"
+mkdir -p .ctfe
+path=$(nix eval --impure --raw --expr "(import $PWD/default.nix).file")
+cp "$path" .ctfe/schema.json
+chmod +w .ctfe/schema.json

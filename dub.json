@@ -1,0 +1,12 @@
+{
+    "name": "datapunt",
+    "description": "Is a datapunt answered",
+    "targetType": "executable",
+    "targetName": "datapunt",
+    "sourcePaths": ["src"],
+    "mainSourceFile": "src/app.d",
+    "stringImportPaths": ["."],
+    "dflags": ["--lowmem"],
+    "extraDependencyFiles": [".ctfe/schema.json"],
+    "preBuildCommands": ["./wind"]
+}
