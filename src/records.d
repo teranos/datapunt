@@ -107,6 +107,20 @@ string attribute(Record r, string key) {
     return null;
 }
 
+// One query for the kind already carries every subject's records, so the newest
+// per subject is in hand and asking the node again for each one asks it what it
+// has already said.
+Record[string] newestBySubject(Record[] all) {
+    Record[string] best;
+    foreach (r; all) {
+        if (r.timestamp < SINCE) continue;
+        if (r.subject.length == 0) continue;
+        auto seen = r.subject in best;
+        if (seen is null || r.timestamp > seen.timestamp) best[r.subject] = r;
+    }
+    return best;
+}
+
 string[] subjectsIn(Record[] all) {
     bool[string] seen;
     foreach (r; all) {

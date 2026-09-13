@@ -3,7 +3,7 @@ module app;
 import std.stdio : writeln, writefln, stderr;
 import schema : fields, kinds, Field;
 import node : fetchSubject, fetchKind, write, OBSERVED;
-import records : parse, newest, attribute, Record, subjectsIn;
+import records : parse, newest, attribute, Record, newestBySubject;
 import transcript : provenance;
 
 private const(Field)* declared(string kind, string path) {
@@ -93,26 +93,28 @@ private int byField(string kind, string prefix) {
         return 2;
     }
 
-    auto names = subjectsIn(parse(fetchKind(kind)));
-    Record[] held;
-    foreach (s; names) held ~= current(s);
+    auto held = newestBySubject(parse(fetchKind(kind)));
     foreach (ref row; rows) {
         foreach (r; held) if (attribute(r, row.path) !is null) row.n++;
     }
 
     import std.algorithm : sort;
     rows.sort!((a, b) => a.n > b.n);
-    foreach (r; rows) writefln("%3s/%s  %-38s %s", r.n, names.length, r.path, r.type);
+    foreach (r; rows) writefln("%3s/%s  %-38s %s", r.n, held.length, r.path, r.type);
     return 0;
 }
 
 private int coverage(string kind) {
     immutable total = declaredFor(kind);
-    auto all = parse(fetchKind(kind));
-    auto names = subjectsIn(all);
+    auto held = newestBySubject(parse(fetchKind(kind)));
+
+    import std.algorithm : sort;
+    auto names = held.keys;
+    names.sort();
+
     size_t sum;
     foreach (s; names) {
-        immutable n = observedIn(current(s), kind);
+        immutable n = observedIn(held[s], kind);
         sum += n;
         writefln("%3s/%s  %s", n, total, s);
     }
