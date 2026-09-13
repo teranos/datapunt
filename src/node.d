@@ -77,6 +77,14 @@ private string actors() {
         who ~= where.length > 0 ? where ~ ":" ~ session : session;
     }
 
+    // The one thing here that is claimed rather than read. Nothing in a
+    // subagent's environment differs from its parent's — AI_AGENT, the
+    // entrypoint and the session id are identical under a model override — so
+    // the model can only come from whoever chose it. Prefixed, so a reader can
+    // see which part of the record was asserted.
+    immutable model = environment.get("DATAPUNT_MODEL", "");
+    if (model.length > 0) who ~= "model:" ~ model;
+
     string out_;
     foreach (i, a; who) {
         if (i) out_ ~= ",";
