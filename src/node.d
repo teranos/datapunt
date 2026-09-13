@@ -14,11 +14,14 @@ struct Record {
     string timestamp;
 }
 
+// Empty when this environment carries the credential somewhere the process
+// cannot read — an egress proxy that authenticates on the way out. Guessing a
+// token would be worse than sending none, so send none and let the node answer.
 private string token() {
     immutable env = environment.get("QNTX_TOKEN", "");
     if (env.length > 0) return env;
     immutable path = environment.get("HOME", "") ~ "/.qntx/token";
-    if (!exists(path)) throw new Exception("no token: set QNTX_TOKEN or write ~/.qntx/token");
+    if (!exists(path)) return "";
     return readText(path).strip();
 }
 
@@ -26,9 +29,12 @@ private string nodeUrl() {
     return environment.get("QNTX_NODE", "https://api.q.sbvh.nl");
 }
 
+// The 401 is the node's to give. A local check cannot see the whole path the
+// request takes, so it cannot be the one that decides the request is hopeless.
 private HTTP authed() {
     auto http = HTTP();
-    http.addRequestHeader("authorization", "Bearer " ~ token());
+    immutable t = token();
+    if (t.length > 0) http.addRequestHeader("authorization", "Bearer " ~ t);
     return http;
 }
 
