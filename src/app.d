@@ -44,7 +44,8 @@ private size_t observedIn(Record r, string kind) {
 
 private int usage() {
     stderr.writeln("datapunt schema                              what it was built to know");
-    stderr.writeln("datapunt <kind>                              coverage across a kind");
+    stderr.writeln("datapunt <kind>                              coverage per subject");
+    stderr.writeln("datapunt <kind> fields                       coverage per field");
     stderr.writeln("datapunt <kind> <name>                       what is unobserved");
     stderr.writeln("datapunt <kind> <name> <field>               observed or not");
     stderr.writeln("datapunt <kind> <name> <field> <value>       observe");
@@ -62,6 +63,29 @@ private int unobserved(string kind, string name) {
     immutable total = declaredFor(kind);
     writefln("%s of %s observed", n, total);
     return n == total ? 0 : 1;
+}
+
+// The other axis: how many subjects carry each field. A field nearly every
+// subject has is a gap worth closing; one almost nobody has may be a field
+// worth removing instead.
+private int byField(string kind) {
+    auto all = parse(fetchKind(kind));
+    auto names = subjectsIn(all);
+    Record[] held;
+    foreach (s; names) held ~= current(s);
+
+    struct Row { string path; string type; size_t n; }
+    Row[] rows;
+    foreach (f; fields) {
+        if (f.kind != kind) continue;
+        size_t n;
+        foreach (r; held) if (attribute(r, f.path) !is null) n++;
+        rows ~= Row(f.path, f.type, n);
+    }
+    import std.algorithm : sort;
+    rows.sort!((a, b) => a.n > b.n);
+    foreach (r; rows) writefln("%3s/%s  %-38s %s", r.n, names.length, r.path, r.type);
+    return 0;
 }
 
 private int coverage(string kind) {
@@ -119,7 +143,7 @@ int main(string[] argv) {
     try {
         if (argv.length == 2) return coverage(kind);
         immutable name = argv[2];
-        if (argv.length == 3) return unobserved(kind, name);
+        if (argv.length == 3) return name == "fields" ? byField(kind) : unobserved(kind, name);
 
         immutable path = argv[3];
         auto f = declared(kind, path);
