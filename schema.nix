@@ -12,6 +12,7 @@ let
   s = q: { type = "string"; question = q; };
   a = q: { type = "absentOrString"; question = q; };
   l = q: { type = "list"; question = q; };
+  al = q: { type = "absentOrList"; question = q; };
   e = values: q: { type = "enum"; inherit values; question = q; };
 in
 {
@@ -43,9 +44,9 @@ in
     pricing = {
       model = e [ "hourly" "flat" "from-price" "per-manhour" "mixed" "quote-only" ] null;
       published = a null;
-      published_rates = l null;
-      hourly = s null;
-      from_price = s null;
+      published_rates = al null;
+      hourly = a null;
+      from_price = a null;
       unit = e [ "uur" "manuur" "per-woning" ] null;
       supplies_included = b null;
       travel_cost = b null;
