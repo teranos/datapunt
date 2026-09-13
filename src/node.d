@@ -55,6 +55,30 @@ string fetchSubject(string subject) {
     return body_(nodeUrl() ~ "/api/attestations?subject=" ~ subject ~ "&since=" ~ SINCE);
 }
 
+// Who ran this, read rather than claimed: a human at a shell has neither
+// variable set, so the absence is the observation.
+private string actors() {
+    string[] who = ["datapunt"];
+
+    immutable agent = environment.get("AI_AGENT", "");
+    if (agent.length > 0) who ~= agent;
+
+    // The surface prefixes the session, because a transcript id only means
+    // something alongside where it was typed.
+    immutable session = environment.get("CLAUDE_CODE_SESSION_ID", "");
+    if (session.length > 0) {
+        immutable where = environment.get("CLAUDE_CODE_ENTRYPOINT", "");
+        who ~= where.length > 0 ? where ~ ":" ~ session : session;
+    }
+
+    string out_;
+    foreach (i, a; who) {
+        if (i) out_ ~= ",";
+        out_ ~= `"` ~ escape(a) ~ `"`;
+    }
+    return out_;
+}
+
 // One attestation per subject. A write carries every field known so far, so
 // the newest record is the whole picture and supersedes the one before it.
 string write(string subject, string kind, string predicate, string[2][] fields) {
@@ -69,7 +93,7 @@ string write(string subject, string kind, string predicate, string[2][] fields) 
         `{"subjects":["` ~ escape(subject) ~ `"],` ~
         `"contexts":["` ~ escape(kind) ~ `"],` ~
         `"predicates":["` ~ escape(predicate) ~ `"],` ~
-        `"actors":["datapunt"],` ~
+        `"actors":[` ~ actors() ~ `],` ~
         `"source":"datapunt",` ~
         `"attributes":{` ~ attrs ~ `}}`;
     return cast(string) post(nodeUrl() ~ "/api/attestations", body_, http);
