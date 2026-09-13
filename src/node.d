@@ -40,7 +40,9 @@ private HTTP authed() {
 
 // What kind of statement this is. The fields it carries are in attributes; the
 // kind of thing it is about is the context.
-enum OBSERVED = "observed";
+// Namespaced, so `source` is free to say where the value was seen rather than
+// which tool wrote it.
+enum OBSERVED = "datapunt:observed";
 
 import records : SINCE, Pair;
 
@@ -88,10 +90,10 @@ private string actors() {
 // One attestation per subject. A write carries every field known so far, so
 // the newest record is the whole picture and supersedes the one before it.
 //
-// `prov` is what the transcript row says about this run. It is written last so
-// the run that wrote the record is the run the record names, rather than one
-// carried forward from the record this one supersedes.
-string write(string subject, string kind, string predicate, string[2][] fields, Pair[] prov) {
+// `prov` is what the row says about this run, written last so the run that
+// wrote the record is the run the record names.
+string write(string subject, string kind, string predicate, string[2][] fields,
+             Pair[] prov, string[] seen) {
     auto http = authed();
     http.addRequestHeader("content-type", "application/json");
 
@@ -108,12 +110,20 @@ string write(string subject, string kind, string predicate, string[2][] fields, 
         if (!superseded) put(kv[0], kv[1]);
     }
     foreach (p; prov) put(p.key, p.value);
+
+    // Every page fetched for this write, not a pick among them.
+    string src;
+    foreach (i, u; seen) {
+        if (i) src ~= " | ";
+        src ~= u;
+    }
+
     immutable body_ =
         `{"subjects":["` ~ escape(subject) ~ `"],` ~
         `"contexts":["` ~ escape(kind) ~ `"],` ~
         `"predicates":["` ~ escape(predicate) ~ `"],` ~
         `"actors":[` ~ actors() ~ `],` ~
-        `"source":"datapunt",` ~
+        `"source":"` ~ escape(src) ~ `",` ~
         `"attributes":{` ~ attrs ~ `}}`;
     return cast(string) post(nodeUrl() ~ "/api/attestations", body_, http);
 }

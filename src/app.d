@@ -4,7 +4,7 @@ import std.stdio : writeln, writefln, stderr;
 import schema : fields, kinds, Field;
 import node : fetchSubject, fetchKind, write, OBSERVED;
 import records : parse, newest, attribute, Record, newestBySubject;
-import transcript : provenance;
+import jsonl : provenance;
 
 private const(Field)* declared(string kind, string path) {
     foreach (ref f; fields) {
@@ -136,7 +136,8 @@ private int observe(string kind, string name, string path, string value, string[
         else if (declared(kind, p.key) !is null) merged ~= [p.key, p.value];
     }
     if (!replaced) merged ~= [path, value];
-    cast(void) write(name, kind, OBSERVED, merged, provenance(argv));
+    auto prov = provenance(argv);
+    cast(void) write(name, kind, OBSERVED, merged, prov.pairs, prov.fetched);
     writeln("true");
     return 0;
 }
