@@ -38,17 +38,21 @@ enum OBSERVED = "observed";
 
 import records : SINCE;
 
+// ubyte, not char: the char instantiation transcodes the body out of whatever
+// charset Content-Type names, and the node names none.
+private string body_(string url) {
+    auto http = authed();
+    return cast(string) get!(HTTP, ubyte)(url, http);
+}
+
 // The kind is the context, so one query returns the whole kind.
 string fetchKind(string kind) {
-    auto http = authed();
-    return cast(string) get(
-        nodeUrl() ~ "/api/attestations?context=" ~ kind ~ "&since=" ~ SINCE ~ "&limit=5000", http);
+    return body_(
+        nodeUrl() ~ "/api/attestations?context=" ~ kind ~ "&since=" ~ SINCE ~ "&limit=5000");
 }
 
 string fetchSubject(string subject) {
-    auto http = authed();
-    return cast(string) get(
-        nodeUrl() ~ "/api/attestations?subject=" ~ subject ~ "&since=" ~ SINCE, http);
+    return body_(nodeUrl() ~ "/api/attestations?subject=" ~ subject ~ "&since=" ~ SINCE);
 }
 
 // One attestation per subject. A write carries every field known so far, so
