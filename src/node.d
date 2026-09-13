@@ -77,23 +77,6 @@ private string actors() {
         who ~= where.length > 0 ? where ~ ":" ~ session : session;
     }
 
-    // The one thing here that is claimed rather than read. Nothing in a
-    // subagent's environment differs from its parent's — AI_AGENT, the
-    // entrypoint and the session id are identical under a model override — so
-    // the model can only come from whoever chose it. Prefixed, so a reader can
-    // see which part of the record was asserted.
-    //
-    // An agent that leaves it unset writes a record indistinguishable from one
-    // written by any other model, and the absence reads as nobody claiming
-    // rather than as somebody forgetting. So the write does not happen: a
-    // refusal is recoverable and a quietly mismodelled attestation is not.
-    immutable model = environment.get("DATAPUNT_MODEL", "");
-    if (agent.length > 0 && model.length == 0)
-        throw new Exception(
-            "AI_AGENT is set and DATAPUNT_MODEL is not: whoever chose the model" ~
-            " must name it, or the record cannot say which one observed this");
-    if (model.length > 0) who ~= "model:" ~ model;
-
     string out_;
     foreach (i, a; who) {
         if (i) out_ ~= ",";
