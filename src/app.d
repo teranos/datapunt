@@ -46,6 +46,7 @@ private int usage() {
     stderr.writeln("datapunt schema                              what it was built to know");
     stderr.writeln("datapunt <kind>                              coverage per subject");
     stderr.writeln("datapunt <kind> fields                       coverage per field");
+    stderr.writeln("datapunt <kind> fields <prefix>              coverage per field, one subtree");
     stderr.writeln("datapunt <kind> <name>                       what is unobserved");
     stderr.writeln("datapunt <kind> <name> <field>               observed or not");
     stderr.writeln("datapunt <kind> <name> <field> <value>       observe");
@@ -65,23 +66,39 @@ private int unobserved(string kind, string name) {
     return n == total ? 0 : 1;
 }
 
+// A prefix names a subtree the way the schema nests it, so `pricing` takes the
+// whole group and `pricing.hourly` takes the one field. A prefix that is only
+// the start of a segment matches nothing.
+private bool under(string path, string prefix) {
+    if (prefix.length == 0) return true;
+    if (path.length < prefix.length) return false;
+    if (path[0 .. prefix.length] != prefix) return false;
+    return path.length == prefix.length || path[prefix.length] == '.';
+}
+
 // The other axis: how many subjects carry each field. A field nearly every
 // subject has is a gap worth closing; one almost nobody has may be a field
 // worth removing instead.
-private int byField(string kind) {
-    auto all = parse(fetchKind(kind));
-    auto names = subjectsIn(all);
-    Record[] held;
-    foreach (s; names) held ~= current(s);
-
+private int byField(string kind, string prefix) {
     struct Row { string path; string type; size_t n; }
     Row[] rows;
     foreach (f; fields) {
         if (f.kind != kind) continue;
-        size_t n;
-        foreach (r; held) if (attribute(r, f.path) !is null) n++;
-        rows ~= Row(f.path, f.type, n);
+        if (!under(f.path, prefix)) continue;
+        rows ~= Row(f.path, f.type, 0);
     }
+    if (rows.length == 0) {
+        stderr.writefln("no field under %s for %s", prefix, kind);
+        return 2;
+    }
+
+    auto names = subjectsIn(parse(fetchKind(kind)));
+    Record[] held;
+    foreach (s; names) held ~= current(s);
+    foreach (ref row; rows) {
+        foreach (r; held) if (attribute(r, row.path) !is null) row.n++;
+    }
+
     import std.algorithm : sort;
     rows.sort!((a, b) => a.n > b.n);
     foreach (r; rows) writefln("%3s/%s  %-38s %s", r.n, names.length, r.path, r.type);
@@ -143,7 +160,8 @@ int main(string[] argv) {
     try {
         if (argv.length == 2) return coverage(kind);
         immutable name = argv[2];
-        if (argv.length == 3) return name == "fields" ? byField(kind) : unobserved(kind, name);
+        if (argv.length == 3) return name == "fields" ? byField(kind, null) : unobserved(kind, name);
+        if (argv.length == 4 && name == "fields") return byField(kind, argv[3]);
 
         immutable path = argv[3];
         auto f = declared(kind, path);
