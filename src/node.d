@@ -32,31 +32,42 @@ private HTTP authed() {
     return http;
 }
 
-// A subject is whatever the caller names. A bare name with no kind in front of
-// it is a competitor, because that is what the schema currently describes.
-string subjectOf(string name) {
-    foreach (c; name) if (c == ':') return name;
-    return "competitor:" ~ name;
-}
+// What kind of statement this is. The fields it carries are in attributes; the
+// kind of thing it is about is the context.
+enum OBSERVED = "observed";
 
-string predicateOf(string field) { return "datapunt:" ~ field; }
+import records : SINCE;
 
-string fetchSubject(string slug) {
+// The kind is the context, so one query returns the whole kind.
+string fetchKind(string kind) {
     auto http = authed();
-    return cast(string) get(nodeUrl() ~ "/api/attestations?subject=" ~ subjectOf(slug), http);
+    return cast(string) get(
+        nodeUrl() ~ "/api/attestations?context=" ~ kind ~ "&since=" ~ SINCE ~ "&limit=5000", http);
 }
 
-string write(string slug, string field, string value, string source, string seen) {
+string fetchSubject(string subject) {
+    auto http = authed();
+    return cast(string) get(
+        nodeUrl() ~ "/api/attestations?subject=" ~ subject ~ "&since=" ~ SINCE, http);
+}
+
+// One attestation per subject. A write carries every field known so far, so
+// the newest record is the whole picture and supersedes the one before it.
+string write(string subject, string kind, string predicate, string[2][] fields) {
     auto http = authed();
     http.addRequestHeader("content-type", "application/json");
+    string attrs;
+    foreach (i, kv; fields) {
+        if (i) attrs ~= ",";
+        attrs ~= `"` ~ escape(kv[0]) ~ `":"` ~ escape(kv[1]) ~ `"`;
+    }
     immutable body_ =
-        `{"subjects":["` ~ escape(subjectOf(slug)) ~ `"],` ~
-        `"predicates":["` ~ escape(predicateOf(field)) ~ `"],` ~
-        `"contexts":["datapunt","competitors"],` ~
-        `"attributes":{` ~
-            `"value":"` ~ escape(value) ~ `",` ~
-            `"source":"` ~ escape(source) ~ `",` ~
-            `"seen":"` ~ escape(seen) ~ `"}}`;
+        `{"subjects":["` ~ escape(subject) ~ `"],` ~
+        `"contexts":["` ~ escape(kind) ~ `"],` ~
+        `"predicates":["` ~ escape(predicate) ~ `"],` ~
+        `"actors":["datapunt"],` ~
+        `"source":"datapunt",` ~
+        `"attributes":{` ~ attrs ~ `}}`;
     return cast(string) post(nodeUrl() ~ "/api/attestations", body_, http);
 }
 

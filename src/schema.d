@@ -4,10 +4,16 @@ module schema;
 // nothing here reads a file at runtime.
 
 struct Field {
+    string kind;
     string path;
     string type;
     string question;
     string[] values;
+}
+
+struct Kind {
+    string name;
+    string identity;
 }
 
 private struct Cursor {
@@ -101,6 +107,7 @@ private Field field(ref Cursor c) {
         ws(c);
         if (c.i < c.s.length && c.s[c.i] == ':') c.i++;
         if (key == "path") f.path = str(c);
+        else if (key == "kind") f.kind = str(c);
         else if (key == "type") f.type = str(c);
         else if (key == "question") { ws(c); if (c.i < c.s.length && c.s[c.i] == '"') f.question = str(c); else skip(c); }
         else if (key == "values") f.values = strList(c);
@@ -141,5 +148,45 @@ private ptrdiff_t indexOfKey(string hay, string needle) {
     return -1;
 }
 
+private Kind kindEntry(ref Cursor c) {
+    Kind k;
+    ws(c);
+    if (c.i >= c.s.length || c.s[c.i] != '{') return k;
+    c.i++;
+    while (c.i < c.s.length) {
+        ws(c);
+        if (c.i < c.s.length && c.s[c.i] == '}') { c.i++; break; }
+        if (c.i < c.s.length && c.s[c.i] == ',') { c.i++; continue; }
+        immutable key = str(c);
+        ws(c);
+        if (c.i < c.s.length && c.s[c.i] == ':') c.i++;
+        if (key == "name") k.name = str(c);
+        else if (key == "identity") k.identity = str(c);
+        else skip(c);
+    }
+    return k;
+}
+
+Kind[] parseKinds(string json) {
+    Kind[] out_;
+    auto c = Cursor(json, 0);
+    immutable at = indexOfKey(json, "\"kinds\"");
+    if (at < 0) return out_;
+    c.i = at + 7;
+    ws(c);
+    if (c.i < c.s.length && c.s[c.i] == ':') c.i++;
+    ws(c);
+    if (c.i >= c.s.length || c.s[c.i] != '[') return out_;
+    c.i++;
+    while (c.i < c.s.length) {
+        ws(c);
+        if (c.i < c.s.length && c.s[c.i] == ']') break;
+        if (c.i < c.s.length && c.s[c.i] == ',') { c.i++; continue; }
+        out_ ~= kindEntry(c);
+    }
+    return out_;
+}
+
 // The whole point: parsed by the compiler, baked in as static data.
 enum fields = parseSchema(import(".ctfe/schema.json"));
+enum kinds = parseKinds(import(".ctfe/schema.json"));

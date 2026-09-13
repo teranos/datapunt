@@ -1,14 +1,18 @@
 module records;
 
-// Pulls the attributes datapunt cares about out of the node's JSON. The full
-// record carries a signature and an actor; a query needs value, source, seen.
+// One attestation per subject: every observed field sits in attributes, and a
+// later attestation supersedes the whole set.
 
-struct Seen {
-    string predicate;
+struct Pair {
+    string key;
     string value;
-    string source;
-    string seen;
+}
+
+struct Record {
+    string subject;
+    string predicate;
     string timestamp;
+    Pair[] attributes;
 }
 
 private string scan(string s, ref size_t i) {
@@ -36,47 +40,82 @@ private string scan(string s, ref size_t i) {
     return out_;
 }
 
-// One pass, tracking the keys that matter. Records are flat enough that a
-// depth counter separates the attributes object from the envelope.
-Seen[] parse(string json) {
-    Seen[] out_;
-    Seen cur;
+private bool isKey(string s, size_t after) {
+    size_t j = after;
+    while (j < s.length && (s[j] == ' ' || s[j] == '\n' || s[j] == '\t')) j++;
+    return j < s.length && s[j] == ':';
+}
+
+// Depth tells the envelope from the attributes object nested inside it.
+Record[] parse(string json) {
+    Record[] out_;
+    Record cur;
     string key;
     int depth;
     bool inRecord;
+    int attrDepth = -1;
     size_t i;
 
     while (i < json.length) {
         immutable c = json[i];
         if (c == '{') {
             depth++;
-            if (depth == 1) { cur = Seen.init; inRecord = true; }
+            if (depth == 1) { cur = Record.init; inRecord = true; }
+            else if (key == "attributes") attrDepth = depth;
             i++;
+            key = null;
             continue;
         }
         if (c == '}') {
+            if (depth == attrDepth) attrDepth = -1;
             depth--;
             if (depth == 0 && inRecord) { out_ ~= cur; inRecord = false; }
             i++;
             continue;
         }
         if (c == '"') {
-            immutable start = i;
             immutable s = scan(json, i);
-            // a key is a string followed by a colon
-            size_t j = i;
-            while (j < json.length && (json[j] == ' ' || json[j] == '\n')) j++;
-            if (j < json.length && json[j] == ':') { key = s; i = j + 1; continue; }
-            if (key == "value") cur.value = s;
-            else if (key == "source" && cur.source.length == 0) cur.source = s;
-            else if (key == "seen") cur.seen = s;
+            if (isKey(json, i)) { key = s; while (json[i] != ':') i++; i++; continue; }
+            if (attrDepth > 0) cur.attributes ~= Pair(key, s);
             else if (key == "timestamp") cur.timestamp = s;
             else if (key == "predicates") cur.predicate = s;
+            else if (key == "subjects") cur.subject = s;
             key = null;
-            cast(void) start;
             continue;
         }
         i++;
     }
+    return out_;
+}
+
+// Older attestations were written in a shape this reader does not understand.
+// ATS has no delete, so they are filtered out instead.
+enum SINCE = "2026-09-12T16:00:00Z";
+
+// The last claim in time is operative.
+Record newest(Record[] all) {
+    Record best;
+    foreach (r; all) {
+        if (r.timestamp < SINCE) continue;
+        if (best.timestamp.length == 0 || r.timestamp > best.timestamp) best = r;
+    }
+    return best;
+}
+
+string attribute(Record r, string key) {
+    foreach (p; r.attributes) if (p.key == key) return p.value;
+    return null;
+}
+
+string[] subjectsIn(Record[] all) {
+    bool[string] seen;
+    foreach (r; all) {
+        if (r.timestamp < SINCE) continue;
+        if (r.subject.length > 0) seen[r.subject] = true;
+    }
+    string[] out_;
+    foreach (k; seen.keys) out_ ~= k;
+    import std.algorithm : sort;
+    out_.sort();
     return out_;
 }

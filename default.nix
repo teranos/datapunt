@@ -1,4 +1,5 @@
-# The schema, flattened to the dotted paths a query uses, as one store path.
+# Every declared field, as the kind it belongs to and the dotted path a query
+# uses, in one store path.
 
 # `builtins.toFile` writes at evaluation time, so there is no derivation and
 # nothing to build. The compiler reads this path directly.
@@ -22,10 +23,18 @@ let
       )
       (builtins.attrNames attrs);
 
-  fields = flatten "" schema;
+  declared = kind: builtins.removeAttrs schema.${kind} [ "identity" ];
+
+  fields = builtins.concatMap
+    (kind: map (f: f // { inherit kind; }) (flatten "" (declared kind)))
+    (builtins.attrNames schema);
+
+  kinds = map
+    (kind: { name = kind; identity = schema.${kind}.identity; })
+    (builtins.attrNames schema);
 in
 {
-  inherit fields;
+  inherit fields kinds;
   count = builtins.length fields;
-  file = builtins.toFile "datapunt-schema.json" (builtins.toJSON { inherit fields; });
+  file = builtins.toFile "datapunt-schema.json" (builtins.toJSON { inherit fields kinds; });
 }
