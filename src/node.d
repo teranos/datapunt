@@ -42,7 +42,7 @@ private HTTP authed() {
 // kind of thing it is about is the context.
 enum OBSERVED = "observed";
 
-import records : SINCE;
+import records : SINCE, Pair;
 
 // ubyte, not char: the char instantiation transcodes the body out of whatever
 // charset Content-Type names, and the node names none.
@@ -87,14 +87,27 @@ private string actors() {
 
 // One attestation per subject. A write carries every field known so far, so
 // the newest record is the whole picture and supersedes the one before it.
-string write(string subject, string kind, string predicate, string[2][] fields) {
+//
+// `prov` is what the transcript row says about this run. It is written last so
+// the run that wrote the record is the run the record names, rather than one
+// carried forward from the record this one supersedes.
+string write(string subject, string kind, string predicate, string[2][] fields, Pair[] prov) {
     auto http = authed();
     http.addRequestHeader("content-type", "application/json");
+
     string attrs;
-    foreach (i, kv; fields) {
-        if (i) attrs ~= ",";
-        attrs ~= `"` ~ escape(kv[0]) ~ `":"` ~ escape(kv[1]) ~ `"`;
+    size_t n;
+    void put(string k, string v) {
+        if (n++) attrs ~= ",";
+        attrs ~= `"` ~ escape(k) ~ `":"` ~ escape(v) ~ `"`;
     }
+
+    foreach (kv; fields) {
+        bool superseded;
+        foreach (p; prov) if (p.key == kv[0]) { superseded = true; break; }
+        if (!superseded) put(kv[0], kv[1]);
+    }
+    foreach (p; prov) put(p.key, p.value);
     immutable body_ =
         `{"subjects":["` ~ escape(subject) ~ `"],` ~
         `"contexts":["` ~ escape(kind) ~ `"],` ~

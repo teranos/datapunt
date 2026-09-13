@@ -4,6 +4,7 @@ import std.stdio : writeln, writefln, stderr;
 import schema : fields, kinds, Field;
 import node : fetchSubject, fetchKind, write, OBSERVED;
 import records : parse, newest, attribute, Record, subjectsIn;
+import transcript : provenance;
 
 private const(Field)* declared(string kind, string path) {
     foreach (ref f; fields) {
@@ -120,16 +121,20 @@ private int coverage(string kind) {
 }
 
 // Read what is there, merge the one new value in, write the whole set back.
-private int observe(string kind, string name, string path, string value) {
+//
+// Only declared fields carry forward. Everything else in the record came from
+// the transcript of the run that wrote it, and that run is not this one — a
+// write that inherited it would name a row it never read.
+private int observe(string kind, string name, string path, string value, string[] argv) {
     auto r = current(name);
     string[2][] merged;
     bool replaced;
     foreach (p; r.attributes) {
         if (p.key == path) { merged ~= [path, value]; replaced = true; }
-        else merged ~= [p.key, p.value];
+        else if (declared(kind, p.key) !is null) merged ~= [p.key, p.value];
     }
     if (!replaced) merged ~= [path, value];
-    cast(void) write(name, kind, OBSERVED, merged);
+    cast(void) write(name, kind, OBSERVED, merged, provenance(argv));
     writeln("true");
     return 0;
 }
@@ -176,7 +181,7 @@ int main(string[] argv) {
                 stderr.writefln("legal: %-(%s, %)", f.values);
                 return 2;
             }
-            return observe(kind, name, path, argv[4]);
+            return observe(kind, name, path, argv[4], argv);
         }
 
         immutable v = attribute(current(name), path);

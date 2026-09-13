@@ -15,7 +15,7 @@ struct Record {
     Pair[] attributes;
 }
 
-private string scan(string s, ref size_t i) {
+string scan(string s, ref size_t i) {
     string out_;
     i++;
     while (i < s.length && s[i] != '"') {
@@ -40,7 +40,7 @@ private string scan(string s, ref size_t i) {
     return out_;
 }
 
-private bool isKey(string s, size_t after) {
+bool isKey(string s, size_t after) {
     size_t j = after;
     while (j < s.length && (s[j] == ' ' || s[j] == '\n' || s[j] == '\t')) j++;
     return j < s.length && s[j] == ':';
