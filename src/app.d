@@ -49,7 +49,7 @@ private int usage() {
     stderr.writeln("datapunt <kind> fields                       coverage per field");
     stderr.writeln("datapunt <kind> fields <prefix>              coverage per field, one subtree");
     stderr.writeln("datapunt <kind> <name>                       what is unobserved");
-    stderr.writeln("datapunt <kind> <name> <field>               observed or not");
+    stderr.writeln("datapunt <kind> <name> <field>               the value, exit 1 if unobserved");
     stderr.writeln("datapunt <kind> <name> <field> <value>       observe");
     return 2;
 }
@@ -186,9 +186,14 @@ int main(string[] argv) {
             return observe(kind, name, path, argv[4], argv);
         }
 
+        // The exit code answers whether it is observed; stdout is the value.
+        // One word cannot be both, and as one word it inverted: a recorded
+        // `false` printed `true`, because it printed the question's answer and
+        // not the field's.
         immutable v = attribute(current(name), path);
-        writeln(v is null ? "false" : "true");
-        return v is null ? 1 : 0;
+        if (v is null) return 1;
+        writeln(v);
+        return 0;
     } catch (Exception e) {
         stderr.writefln("failed: %s", e.msg);
         return 3;
