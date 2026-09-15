@@ -14,15 +14,14 @@ struct Record {
     string timestamp;
 }
 
-// Empty when this environment carries the credential somewhere the process
-// cannot read — an egress proxy that authenticates on the way out. Guessing a
-// token would be worse than sending none, so send none and let the node answer.
+// clean-datapunt, beside the binary. Never ~/.qntx/token: that is root.
+// Empty where an egress proxy holds the credential, so the node answers.
 private string token() {
-    immutable env = environment.get("QNTX_TOKEN", "");
-    if (env.length > 0) return env;
-    immutable path = environment.get("HOME", "") ~ "/.qntx/token";
-    if (!exists(path)) return "";
-    return readText(path).strip();
+    import std.file : thisExePath;
+    import std.path : dirName;
+    immutable path = thisExePath().dirName ~ "/.token";
+    if (exists(path)) return readText(path).strip();
+    return environment.get("QNTX_TOKEN", "");
 }
 
 private string nodeUrl() {
