@@ -15,6 +15,21 @@ struct Record {
     Pair[] attributes;
 }
 
+// Four hex digits as one UTF-16 code unit, or -1 when they are not four hex digits.
+private int hex4(string s, size_t at) {
+    if (at + 4 > s.length) return -1;
+    int v;
+    foreach (k; 0 .. 4) {
+        immutable h = s[at + k];
+        v <<= 4;
+        if (h >= '0' && h <= '9') v |= h - '0';
+        else if (h >= 'a' && h <= 'f') v |= h - 'a' + 10;
+        else if (h >= 'A' && h <= 'F') v |= h - 'A' + 10;
+        else return -1;
+    }
+    return v;
+}
+
 string scan(string s, ref size_t i) {
     string out_;
     i++;
@@ -25,9 +40,28 @@ string scan(string s, ref size_t i) {
                 case 'n': out_ ~= '\n'; break;
                 case 't': out_ ~= '\t'; break;
                 case 'r': out_ ~= '\r'; break;
+                case 'b': out_ ~= '\b'; break;
+                case 'f': out_ ~= '\f'; break;
                 case '"': out_ ~= '"'; break;
                 case '\\': out_ ~= '\\'; break;
                 case '/': out_ ~= '/'; break;
+                // The node writes & < > as & < >. Dropping the
+                // backslash kept u0026, and every write carries a read forward.
+                case 'u': {
+                    immutable unit = hex4(s, i + 1);
+                    if (unit < 0) { out_ ~= "\\u"; break; }
+                    i += 4;
+                    dchar c = cast(dchar) unit;
+                    if (unit >= 0xD800 && unit < 0xDC00 && i + 6 < s.length && s[i + 1] == '\\' && s[i + 2] == 'u') {
+                        immutable low = hex4(s, i + 3);
+                        if (low >= 0xDC00 && low < 0xE000) {
+                            c = cast(dchar) (0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00));
+                            i += 6;
+                        }
+                    }
+                    out_ ~= (c >= 0xD800 && c < 0xE000) ? cast(dchar) 0xFFFD : c;
+                    break;
+                }
                 default: out_ ~= s[i];
             }
             i++;
