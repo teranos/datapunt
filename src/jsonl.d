@@ -14,6 +14,7 @@ module jsonl;
 // The values are copied out under the names the row uses. Nothing here decides
 // what any of them means.
 
+import std.stdio : stderr;
 import std.file : exists, isDir, readText, dirEntries, SpanMode;
 import std.process : environment;
 import std.string : indexOf, splitLines, strip;
@@ -64,10 +65,36 @@ private string field(string row, string key) {
     return null;
 }
 
-// The latest row naming this command, by the timestamp the rows carry.
-private bool locate(string cmd, out string file, out string row) {
+// Each argument on its own, inside what one Bash call was handed.
+//
+// The line as typed is not the line as argv: the binary can be reached through
+// a variable or an alias, and any value holding a space is quoted, so the joined
+// argv is not a substring of the command. Every argument is a substring of the
+// quoted text that carries it, so each is looked for separately.
+//
+// Inside a Bash input, not anywhere in the row: a turn that writes about a
+// command names the same words as the turn that ran it, and prose is not a run.
+//
+// A Bash input that writes the command into a file names it too, and that is
+// not a run either. Run through a script, the running row holds only the
+// script's path and the arguments appear solely in the row that wrote it, so
+// the row found is that one. Nothing on disk links the two.
+private bool names(string line, string[] args) {
+    foreach (span; inputs(line, "Bash")) {
+        bool all = true;
+        foreach (a; args) {
+            if (a.length == 0) continue;
+            if (span.indexOf(a) < 0) { all = false; break; }
+        }
+        if (all) return true;
+    }
+    return false;
+}
+
+// The latest row naming these arguments, by the timestamp the rows carry.
+private bool locate(string[] cands, string[] args, out string file, out string row) {
     string latest;
-    foreach (c; candidates()) {
+    foreach (c; cands) {
         string text;
         try {
             text = readText(c);
@@ -75,8 +102,8 @@ private bool locate(string cmd, out string file, out string row) {
             continue;
         }
         foreach (line; text.splitLines()) {
-            if (line.indexOf(cmd) < 0) continue;
             if (line.indexOf(`"type":"assistant"`) < 0) continue;
+            if (!names(line, args)) continue;
             immutable ts = field(line, "timestamp");
             if (ts.length == 0) continue;
             if (latest.length > 0 && ts <= latest) continue;
@@ -231,18 +258,22 @@ struct Provenance {
     string[] fetched;
 }
 
-// Empty when no single row names this command line. There is nothing to record
-// then, and nothing to guess.
+// Empty when no row names these arguments. There is nothing to record then, and
+// nothing to guess — but where this session has a transcript and no row matches,
+// that is the tool failing to find itself rather than there being nothing to
+// find, and it says so instead of writing a record that quietly claims nobody.
 Provenance provenance(string[] argv) {
-    string cmd;
-    foreach (n, a; argv) {
-        if (n) cmd ~= " ";
-        cmd ~= a;
-    }
-    if (cmd.length == 0) return Provenance.init;
+    if (argv.length < 2) return Provenance.init;
+    auto args = argv[1 .. $];
+
+    auto cands = candidates();
+    if (cands.length == 0) return Provenance.init;
 
     string file, row;
-    if (!locate(cmd, file, row)) return Provenance.init;
+    if (!locate(cands, args, file, row)) {
+        stderr.writeln("datapunt: no row in this session names this command; provenance not recorded");
+        return Provenance.init;
+    }
 
     auto pairs = scalars(row);
     pairs ~= Pair(FILE_KEY, file);
