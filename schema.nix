@@ -138,6 +138,7 @@ in
 
     structured_data = {
       local_business = a null;
+      llms_txt = a "Is anyone else reachable by an agent without parsing a page?";
     };
   };
 }
