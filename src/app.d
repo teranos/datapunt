@@ -28,6 +28,14 @@ private Record current(string subject) {
     return newest(parse(fetchSubject(subject)));
 }
 
+// Every page of the kind, as one set of records. What a page was is the node's
+// business; a roll call is over the whole kind or it is not a roll call.
+private Record[] wholeKind(string kind) {
+    Record[] all;
+    foreach (page; fetchKind(kind)) all ~= parse(page);
+    return all;
+}
+
 private size_t declaredFor(string kind) {
     size_t n;
     foreach (f; fields) if (f.kind == kind) n++;
@@ -93,7 +101,7 @@ private int byField(string kind, string prefix) {
         return 2;
     }
 
-    auto held = newestBySubject(parse(fetchKind(kind)));
+    auto held = newestBySubject(wholeKind(kind));
     foreach (ref row; rows) {
         foreach (r; held) if (attribute(r, row.path) !is null) row.n++;
     }
@@ -106,7 +114,7 @@ private int byField(string kind, string prefix) {
 
 private int coverage(string kind) {
     immutable total = declaredFor(kind);
-    auto held = newestBySubject(parse(fetchKind(kind)));
+    auto held = newestBySubject(wholeKind(kind));
 
     import std.algorithm : sort;
     auto names = held.keys;

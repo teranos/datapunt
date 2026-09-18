@@ -43,7 +43,9 @@ private HTTP authed() {
 // which tool wrote it.
 enum OBSERVED = "datapunt:observed";
 
-import records : SINCE, Pair;
+// This module has a Record of its own — what a write carries — so the parsed
+// row comes in under the name of what it is.
+import records : SINCE, Pair, parse, Row = Record;
 
 // ubyte, not char: the char instantiation transcodes the body out of whatever
 // charset Content-Type names, and the node names none.
@@ -52,10 +54,65 @@ private string body_(string url) {
     return cast(string) get!(HTTP, ubyte)(url, http);
 }
 
-// The kind is the context, so one query returns the whole kind.
-string fetchKind(string kind) {
-    return body_(
-        nodeUrl() ~ "/api/attestations?context=" ~ kind ~ "&since=" ~ SINCE ~ "&limit=5000");
+// A page and what the node said about it. `more` is the node's own answer to
+// whether anything exists past this page; a full page is not that answer.
+private struct Page {
+    string body;
+    bool more;
+}
+
+// get() installs its own header handler, so onReceiveHeader never fires here.
+// What it leaves on the client is the answer's headers, keyed in lower case.
+private Page page_(string url) {
+    auto http = authed();
+    immutable body = cast(string) get!(HTTP, ubyte)(url, http);
+    auto said = "x-qntx-more" in http.responseHeaders;
+    if (said is null)
+        throw new Exception(
+            "the node did not say whether more exists past this page (x-qntx-more): " ~ url);
+    return Page(body, *said == "true");
+}
+
+// What one page holds. The node caps it here whatever a caller asks for.
+enum PAGE = 1000;
+
+private string oldest(Row[] rows) {
+    string out_;
+    foreach (r; rows)
+        if (out_.length == 0 || r.timestamp < out_) out_ = r.timestamp;
+    return out_;
+}
+
+// A kind is a walk backwards in time: rows come newest-first, each page ends
+// at its oldest row, and the next page asks `until` that row. The bound is
+// inclusive, so it arrives twice — the same claim read twice is the same claim.
+string[] fetchKind(string kind) {
+    string[] pages;
+    string until;
+    while (true) {
+        immutable url = nodeUrl() ~ "/api/attestations?context=" ~ kind
+            ~ "&since=" ~ SINCE
+            ~ (until.length ? "&until=" ~ until : "")
+            ~ "&limit=" ~ PAGE.to!string;
+        immutable page = page_(url);
+        pages ~= page.body;
+
+        // The node says whether anything is past this page. Counting rows was
+        // a guess at the same question, and a full page that was the whole of
+        // the kind cost one request every time.
+        if (!page.more) return pages;
+
+        auto rows = parse(page.body);
+        immutable edge = oldest(rows);
+        // A full page whose oldest row is the one already asked until cannot
+        // move: more rows share that instant than fit in a page, and time is
+        // the only handle the node gives.
+        if (edge == until)
+            throw new Exception(
+                "a full page of " ~ PAGE.to!string ~ " rows sits on one timestamp (" ~ edge ~
+                "), so paging by time cannot reach past it");
+        until = edge;
+    }
 }
 
 string fetchSubject(string subject) {
