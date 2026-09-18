@@ -41,6 +41,17 @@ in
       whatsapp = a null;
     };
 
+    # Whether a customer (or staff member) can log in to anything at all, and
+    # who it is for. A login link on a small cleaning company's own site is
+    # sometimes a customer portal and sometimes a lazily-exposed staff/WP
+    # login, so audience is asked for separately rather than assumed from
+    # presence alone.
+    login = {
+      present = b "Is a customer account system table stakes, or would building one differentiate us?";
+      audience = e [ "customer" "staff" "unclear" ] null;
+      url = a null;
+    };
+
     pricing = {
       model = e [ "hourly" "flat" "from-price" "per-manhour" "mixed" "quote-only" ] null;
       published = a null;
