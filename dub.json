@@ -2,11 +2,24 @@
     "name": "datapunt",
     "description": "Is a datapunt answered",
     "targetType": "executable",
-    "targetName": "datapunt",
     "sourcePaths": ["src"],
-    "mainSourceFile": "src/app.d",
     "stringImportPaths": ["."],
     "dflags": ["--lowmem"],
     "extraDependencyFiles": [".ctfe/schema.json"],
-    "preBuildCommands": ["./wind"]
+    "preBuildCommands": ["./wind"],
+    "configurations": [
+        {
+            "name": "cli",
+            "targetName": "datapunt",
+            "mainSourceFile": "src/app.d",
+            "excludedSourceFiles": ["src/plugin/*"]
+        },
+        {
+            "name": "plugin",
+            "targetName": "qntx-datapunt-plugin",
+            "targetPath": "bin",
+            "mainSourceFile": "src/plugin/entry.d",
+            "excludedSourceFiles": ["src/app.d", "src/node.d", "src/jsonl.d", "src/records.d"]
+        }
+    ]
 }
