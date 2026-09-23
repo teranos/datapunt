@@ -1,8 +1,11 @@
 module schema;
 
-// The schema, parsed at compile time into static data. Nix wrote the JSON;
-// nothing here reads a file at runtime.
+// The schema, parsed at compile time into static data. cue wrote the JSON
+// (wind); nothing here reads a file at runtime.
 
+// No namespace here. The node hands each call a store token that reaches the
+// caller's namespace and names it to nobody (QNTX ADR-038), so one schema
+// serves every company and the data parts by token.
 struct Field {
     string kind;
     string path;

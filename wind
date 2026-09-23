@@ -1,8 +1,14 @@
 #!/usr/bin/env sh
-# Evaluate the schema and put it where a string import can read it.
+# Check the schema and put it where a string import can read it. cue comes
+# from the nixpkgs this repo's flake.lock pins.
+#
+# This repo holds the definitions and the idiom. The kinds come from the
+# companies: DATAPUNT_SCHEMAS names their .cue files, space-separated, and a
+# build with it unset carries no kind at all.
 set -e
 cd "$(dirname "$0")"
 mkdir -p .ctfe
-path=$(nix eval --impure --raw --expr "(import $PWD/default.nix).file")
-cp "$path" .ctfe/schema.json
-chmod +w .ctfe/schema.json
+cue() { nix shell --inputs-from "$PWD" nixpkgs#cue -c cue "$@"; }
+# Unquoted on purpose: one path per word.
+cue vet -c ./schema/*.cue $DATAPUNT_SCHEMAS
+cue export ./schema/*.cue $DATAPUNT_SCHEMAS -e export --out json -o .ctfe/schema.json -f

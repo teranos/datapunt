@@ -1,7 +1,18 @@
 # datapunt
 
-The only way in or out for what we know about a competitor. `schema.nix` is
-the whole of what a competitor may carry; the observations live in QNTX.
+A schema compiled into a QNTX plugin. What a subject of a kind may carry is
+declared once, in CUE, and the binary refuses anything else; the observations
+live in QNTX, one namespace per company, and the node hands each call the
+store of the caller's namespace without naming it (QNTX ADR-038).
+
+This repo is the core: the plugin, `schema/datapunt.cue` with the definitions
+and the idiom, and no kind of its own. A company keeps its kinds in its own
+repo as one CUE file in package `datapunt`, and the build that unifies the
+core with every company's file and releases the plugin is QNTX's
+`plugin-datapunt` workflow, called by the deployment that runs the node.
+
+`wind` is the check and the export: `DATAPUNT_SCHEMAS` names the company
+files, and `dub build --config=plugin` runs it first.
 
 ## Decided
 
@@ -10,12 +21,11 @@ Brandon, 2026-09-23, on why the schema moves from Nix to CUE:
 "the reason for CUE is that i want to use datapunt for multiple namespaces
 and copanies to do datapunt work for"
 
-The Nix schema was Clean's decision, CDR-026 in `sbvh-nl/clean`, made when
-datapunt lived in that repo and served that one company.
+"the datapunt as a qntx plugin build should happen in qntx"
+
+"and the datapunt repo becomes an agnostic core"
 
 ## Open
 
-- [ ] The schema in CUE, so a second company brings its own kinds without
-      touching Clean's.
 - [ ] Automate datapunt analysis of competitors, beyond Clean, as stoke
       handlers on QNTX.
