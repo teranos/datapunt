@@ -1,0 +1,88 @@
+{
+  "jobs": {
+    "linux-amd64": {
+      "runs-on": [
+        "self-hosted",
+        "q-box"
+      ],
+      "steps": [
+        {
+          "uses": "actions/checkout@v5"
+        },
+        {
+          "uses": "cachix/install-nix-action@v31.11.1"
+        },
+        {
+          "uses": "dlang-community/setup-dlang@v2.0.0",
+          "with": {
+            "compiler": "ldc-1.41.0"
+          }
+        },
+        {
+          "name": "Test",
+          "run": "dub test --config=plugin --compiler=ldc2"
+        },
+        {
+          "name": "Build plugin",
+          "run": "dub build --config=plugin --compiler=ldc2 --build=release"
+        },
+        {
+          "env": {
+            "GH_REPO": "${{ github.repository }}",
+            "GH_TOKEN": "${{ github.token }}"
+          },
+          "id": "version",
+          "name": "Resolve version",
+          "run": "gh() { nix shell --inputs-from \"$GITHUB_WORKSPACE\" nixpkgs#gh -c gh \"$@\"; }\nVERSION=$(./bin/qntx-datapunt-plugin --version | cut -d' ' -f2)\necho \"version=$VERSION\" >> \"$GITHUB_OUTPUT\"\nTAGS=$(gh release list --limit 1000 --json tagName --jq '.[].tagName')\nFRESH=yes\nfor TAG in $TAGS; do\n  if [ \"$TAG\" = \"datapunt-v$VERSION\" ]; then FRESH=no; fi\ndone\nif [ \"$FRESH\" = no ]; then\n  echo \"datapunt-v$VERSION is already released — change the schema or bump PLUGIN_VERSION in src/plugin/service.d to ship again\" >&2\nfi\necho \"fresh=$FRESH\" >> \"$GITHUB_OUTPUT\"\n"
+        },
+        {
+          "id": "package",
+          "name": "Package",
+          "run": "ARTIFACT=\"qntx-datapunt-plugin-${{ steps.version.outputs.version }}-linux-amd64.tar.gz\"\ntar -czf \"$ARTIFACT\" -C bin qntx-datapunt-plugin\nsha256sum \"$ARTIFACT\" > \"$ARTIFACT.sha256\"\necho \"artifact=$ARTIFACT\" >> \"$GITHUB_OUTPUT\"\n"
+        },
+        {
+          "name": "Verify the artifact runs",
+          "run": "VERIFY=\"$RUNNER_TEMP/verify-datapunt\"\nrm -rf \"$VERIFY\" && mkdir -p \"$VERIFY\"\ntar -xzf \"${{ steps.package.outputs.artifact }}\" -C \"$VERIFY\"\n\"$VERIFY/qntx-datapunt-plugin\" --version\n"
+        },
+        {
+          "if": "steps.version.outputs.fresh != 'yes'",
+          "name": "Upload artifact",
+          "uses": "actions/upload-artifact@v4",
+          "with": {
+            "name": "${{ steps.package.outputs.artifact }}",
+            "path": "${{ steps.package.outputs.artifact }}\n${{ steps.package.outputs.artifact }}.sha256\n"
+          }
+        },
+        {
+          "env": {
+            "GH_REPO": "${{ github.repository }}",
+            "GH_TOKEN": "${{ github.token }}"
+          },
+          "if": "steps.version.outputs.fresh == 'yes'",
+          "name": "Publish release",
+          "run": "gh() { nix shell --inputs-from \"$GITHUB_WORKSPACE\" nixpkgs#gh -c gh \"$@\"; }\nTAG=\"datapunt-v${{ steps.version.outputs.version }}\"\ngh release create \"$TAG\" \\\n  \"${{ steps.package.outputs.artifact }}\" \\\n  \"${{ steps.package.outputs.artifact }}.sha256\" \\\n  --target \"$GITHUB_SHA\" --title \"$TAG\" --generate-notes\n"
+        }
+      ]
+    }
+  },
+  "name": "release",
+  "on": {
+    "push": {
+      "branches": [
+        "main"
+      ],
+      "paths": [
+        "src/**",
+        "schema.nix",
+        "default.nix",
+        "wind",
+        "dub.json",
+        ".github/workflows/release.yml"
+      ]
+    },
+    "workflow_dispatch": null
+  },
+  "permissions": {
+    "contents": "write"
+  }
+}

@@ -1,0 +1,7 @@
+# The binaries, the schema nix writes for the compiler, and the token, which is
+# a secret.
+/datapunt
+/bin/
+/.token
+/.ctfe/
+/.dub/

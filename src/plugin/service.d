@@ -17,7 +17,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.1.0-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.2.0-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -35,6 +35,9 @@ string schemaDigest(string schema) {
 // Who is asking, as the node admitted them (server/plugin_sigils.go).
 enum HEADER_ASKER = "x-qntx-asker";
 enum HEADER_ASKER_DID = "x-qntx-asker-did";
+// What this one call presents to the ATS store: it reaches the namespace the
+// caller acts in, and nothing else does.
+enum HEADER_STORE_TOKEN = "x-qntx-store-token";
 
 private __gshared Store store;
 
@@ -137,10 +140,13 @@ Answer handleHTTP(ref const HTTPRequest req) {
     string query;
     foreach (i, c; path) if (c == '?') { query = path[i + 1 .. $]; path = path[0 .. i]; break; }
 
+    Store call;
+    if (auto why = callStore(req, call)) return failed(why);
+
     if (req.method == "GET" && path == "/read") {
         auto sent = parseQuery(query);
         Record[] records;
-        if (auto why = readKind(store, sent.get("kind", ""), records)) return failed(why);
+        if (auto why = readKind(call, sent.get("kind", ""), records)) return failed(why);
         return read(sent.get("kind", ""), sent.get("by", ""), sent.get("name", ""),
             sent.get("field", ""), sent.get("prefix", ""), records);
     }
@@ -153,15 +159,28 @@ Answer handleHTTP(ref const HTTPRequest req) {
         if (name.length == 0) return refused("missing", "name", "observe needs name");
 
         Record[] records;
-        if (auto why = readKind(store, kind, records)) return failed(why);
+        if (auto why = readKind(call, kind, records)) return failed(why);
         string[2][] merged;
         auto a = observe(kind, name, field, value, records, merged);
         if (a.status != 200) return a;
-        if (auto why = write(store, name, kind, merged, actorsOf(req))) return failed(why);
+        if (auto why = write(call, name, kind, merged, actorsOf(req))) return failed(why);
         return a;
     }
 
     return Answer(404, `{"error":"not found: ` ~ req.method ~ ` ` ~ path ~ `"}`);
+}
+
+/// The store this call reaches: the node's, under the token it handed for this
+/// call. Null is that store; anything else is why there is none.
+string callStore(ref const HTTPRequest req, out Store call) {
+    foreach (ref h; req.headers) {
+        import std.uni : toLower;
+        if (h.name.toLower != HEADER_STORE_TOKEN || h.values.length == 0) continue;
+        if (h.values[0].length == 0) break;
+        call = Store(store.endpoint, h.values[0]);
+        return null;
+    }
+    return "the node handed no store token for this call, so which namespace the caller acts in is unknown";
 }
 
 /// datapunt, and whoever the node admitted: the token's own DID when a token
@@ -261,5 +280,25 @@ unittest {
     HTTPRequest unknown;
     unknown.method = "GET";
     unknown.path = "/nothing";
+    unknown.headers = [HTTPHeader("X-Qntx-Store-Token", ["call"])];
     assert(handleHTTP(unknown).status == 404);
+
+    // A call reads and writes under the token the node handed for it, at the
+    // store Initialize named.
+    store = Store("127.0.0.1:9", "shared");
+    Store call;
+    HTTPRequest handed;
+    handed.headers = [HTTPHeader("X-Qntx-Store-Token", ["call"])];
+    assert(callStore(handed, call) is null);
+    assert(call.endpoint == "127.0.0.1:9" && call.token == "call");
+
+    // A call the node handed no token for is not answered at the shared one.
+    handed.headers = null;
+    assert(callStore(handed, call) !is null);
+    handed.headers = [HTTPHeader("X-Qntx-Store-Token", [""])];
+    assert(callStore(handed, call) !is null);
+    HTTPRequest bare;
+    bare.method = "GET";
+    bare.path = "/read?kind=competitor&by=subject";
+    assert(handleHTTP(bare).status == 500);
 }
