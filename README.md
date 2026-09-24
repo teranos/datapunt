@@ -14,6 +14,14 @@ core with every company's file and releases the plugin is QNTX's
 `wind` is the check and the export: `DATAPUNT_SCHEMAS` names the company
 files, and `dub build --config=plugin` runs it first.
 
+The core tests itself against `testdata/competitor.cue`, a fixture kind that
+datapunt does not ship:
+
+    DATAPUNT_SCHEMAS=testdata/competitor.cue dub test --config=plugin
+
+CI (`.github/workflows/test.yml`) runs that, vets the core with no kind at
+all, and builds both configurations.
+
 ## Decided
 
 Brandon, 2026-09-23, on why the schema moves from Nix to CUE:
