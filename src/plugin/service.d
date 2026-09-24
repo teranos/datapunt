@@ -346,3 +346,108 @@ unittest {
     bare.path = "/read?kind=competitor&by=subject";
     assert(handleHTTP(bare).status == 500);
 }
+
+// What a call writes, against a store that keeps what it is asked and has
+// nothing to give: this plugin's own server, answering as the node's ATSStore.
+unittest {
+    import core.thread : Thread;
+    import std.conv : to;
+
+    struct Wrote {
+        string subject;
+        string predicate;
+        string kind;
+        string[2][] attributes;
+    }
+    Wrote[] wrote;
+    string[] readOf;
+    bool keeps = true;
+
+    GrpcServer fake;
+    fake.registerHandler("/protocol.ATSStoreService/GetAttestations", (const ubyte[] data) {
+        readOf ~= decode!GetAttestationsRequest(data).filter.predicates;
+        GetAttestationsResponse resp;
+        resp.success = true;
+        return encode(resp);
+    });
+    fake.registerHandler("/protocol.ATSStoreService/GenerateAndCreateAttestation", (const ubyte[] data) {
+        auto cmd = decode!GenerateAttestationRequest(data).command;
+        GenerateAttestationResponse resp;
+        resp.success = keeps;
+        if (!keeps) {
+            resp.error = "full";
+            return encode(resp);
+        }
+        Wrote w = Wrote(cmd.subjects[0], cmd.predicates[0], cmd.contexts[0]);
+        foreach (ref e; decode!Struct(cmd.attributes).fields) w.attributes ~= [e.key, e.value.stringValue];
+        wrote ~= w;
+        return encode(resp);
+    });
+    immutable port = fake.bind(39217);
+    assert(port != 0);
+    auto serving = new Thread(() { fake.serve(); });
+    serving.isDaemon = true;
+    serving.start();
+    store = Store("127.0.0.1:" ~ port.to!string, "shared");
+
+    Answer get(string query) {
+        HTTPRequest r;
+        r.method = "GET";
+        r.path = "/read?" ~ query;
+        r.headers = [HTTPHeader("X-Qntx-Store-Token", ["call"])];
+        return handleHTTP(r);
+    }
+    Answer post(string body_) {
+        HTTPRequest r;
+        r.method = "POST";
+        r.path = "/observe";
+        r.body_ = cast(ubyte[]) body_.dup;
+        r.headers = [HTTPHeader("X-Qntx-Store-Token", ["call"])];
+        return handleHTTP(r);
+    }
+
+    // An observation is written as one.
+    assert(post(`{"kind":"competitor","name":"acme.nl","field":"cta.phone","value":"020"}`).status == 200);
+    assert(wrote.length == 1 && wrote[0].predicate == OBSERVED);
+
+    // A value the schema will not hold is refused, and the refusal written,
+    // with the schema that refused it.
+    auto everyone = post(`{"kind":"competitor","name":"acme.nl","field":"login.audience","value":"everyone"}`);
+    assert(everyone.status == 400);
+    assert(wrote.length == 2);
+    assert(wrote[1].predicate == REFUSED && wrote[1].subject == "acme.nl" && wrote[1].kind == "competitor");
+    assert(wrote[1].attributes == [["field", "login.audience"], ["value", "everyone"], ["param", "value"],
+        ["says", "not a legal login.audience value: everyone. Legal: customer, staff, unclear"], ["schema", PLUGIN_VERSION]]);
+
+    // So is a field the kind does not have.
+    assert(post(`{"kind":"competitor","name":"acme.nl","field":"cta.fax","value":"020"}`).status == 400);
+    assert(wrote.length == 3 && wrote[2].predicate == REFUSED && wrote[2].attributes[2] == ["param", "field"]);
+
+    // A kind the schema does not know is refused and not written.
+    assert(post(`{"kind":"vendor","name":"acme.nl","field":"url","value":"x"}`).status == 400);
+    assert(wrote.length == 3);
+
+    // A question the schema cannot hold is refused, and the question written.
+    assert(get("kind=competitor&name=acme.nl&field=cta.fax").status == 400);
+    assert(wrote.length == 4);
+    assert(wrote[3].predicate == WANTED && wrote[3].subject == "acme.nl" && wrote[3].kind == "competitor");
+    assert(wrote[3].attributes == [["field", "cta.fax"], ["says", "no such field for competitor: cta.fax"], ["schema", PLUGIN_VERSION]]);
+
+    // One it can hold is answered, and nothing written.
+    assert(get("kind=competitor&name=acme.nl&field=cta.form").status == 200);
+    assert(wrote.length == 4);
+
+    // Each by reads its own statements.
+    readOf = null;
+    get("kind=competitor&by=field");
+    get("kind=competitor&by=refused");
+    get("kind=competitor&by=wanted");
+    assert(readOf == [OBSERVED, REFUSED, WANTED]);
+
+    // A store that will not keep a refusal or a question does not change the
+    // caller's answer.
+    keeps = false;
+    assert(post(`{"kind":"competitor","name":"acme.nl","field":"login.audience","value":"everyone"}`) == everyone);
+    assert(get("kind=competitor&name=acme.nl&field=cta.fax").status == 400);
+    assert(wrote.length == 4);
+}
