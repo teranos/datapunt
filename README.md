@@ -19,8 +19,9 @@ datapunt does not ship:
 
     DATAPUNT_SCHEMAS=testdata/competitor.cue dub test --config=plugin
 
-CI (`.github/workflows/test.yml`) runs that and the CLI's tests, vets the
-core with no kind at all, and builds both configurations.
+CI runs that and the CLI's tests, vets the core with no kind at all, and
+builds both configurations. `.github/workflows/test.yml` is emitted from
+`ci/test.nix`, never edited by hand, and CI fails when the two differ.
 
 ## Trying it against a real node
 
