@@ -100,13 +100,13 @@ Signum signum() {
     s.name = PLUGIN_NAME;
     s.sigils = [
         Sigil("read",
-            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name no subject and say by subject or by field for coverage across the kind, or by refused for what the schema would not hold.",
+            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name no subject and say by subject or by field for coverage across the kind, by refused for what the schema would not hold, or by wanted for what was asked of it that it does not hold. Asking one subject for a field the schema does not hold is refused, and the question is written down.",
             [
                 kind,
-                Param("by", "For a whole kind: coverage per subject, or per field, fullest first; or the refusals, per field and value, most refused first.", false, ["subject", "field", "refused"]),
+                Param("by", "For a whole kind: coverage per subject, or per field, fullest first; the refusals, per field and value, most refused first; or the fields asked for that the schema does not hold, most wanted first.", false, ["subject", "field", "refused", "wanted"]),
                 Param("name", "One subject, by its name."),
                 Param("field", "One field of that subject, by its dotted path.", false, fieldPaths()),
-                Param("prefix", "With by field or by refused: one subtree, as the schema nests it."),
+                Param("prefix", "With by field, refused or wanted: one subtree, as the schema nests it."),
             ],
             [
                 Field("kind", "The kind that was read."),
@@ -114,7 +114,8 @@ Signum signum() {
                 Field("observed", "How many of the cells asked about are observed."),
                 Field("of", "How many cells were asked about."),
                 Field("refused", "By refused: how many refusals were read."),
-                Field("standing", "By refused: how many rows the schema as compiled would still refuse."),
+                Field("standing", "By refused or wanted: how many rows the schema as compiled would still refuse."),
+                Field("wanted", "By wanted: how many questions were read."),
             ],
             Endpoint("GET", "/api/datapunt/read")),
         Sigil("observe",
@@ -147,11 +148,16 @@ Answer handleHTTP(ref const HTTPRequest req) {
 
     if (req.method == "GET" && path == "/read") {
         auto sent = parseQuery(query);
-        auto predicate = sent.get("by", "") == "refused" ? REFUSED : OBSERVED;
+        auto kind = sent.get("kind", ""), name = sent.get("name", ""), field = sent.get("field", "");
         Record[] records;
-        if (auto why = readKind(call, sent.get("kind", ""), predicate, records)) return failed(why);
-        return read(sent.get("kind", ""), sent.get("by", ""), sent.get("name", ""),
-            sent.get("field", ""), sent.get("prefix", ""), records);
+        if (auto why = readKind(call, kind, predicateFor(sent.get("by", "")), records)) return failed(why);
+        auto a = read(kind, sent.get("by", ""), name, field, sent.get("prefix", ""), records);
+        // The caller is answered either way. A question the store would not
+        // keep is the node's fault, and the log says what.
+        if (auto w = wantedRecord(kind, name, field))
+            if (auto why = write(call, name, kind, WANTED, w, actorsOf(req)))
+                logError("[datapunt] the question was not written: %s", why);
+        return a;
     }
 
     if (req.method == "POST" && path == "/observe") {
@@ -180,6 +186,21 @@ Answer handleHTTP(ref const HTTPRequest req) {
     }
 
     return Answer(404, `{"error":"not found: ` ~ req.method ~ ` ` ~ path ~ `"}`);
+}
+
+/// The statements a read of this by is over.
+string predicateFor(string by) {
+    if (by == "refused") return REFUSED;
+    if (by == "wanted") return WANTED;
+    return OBSERVED;
+}
+
+/// What to write for a read that asked for a field the schema does not hold:
+/// what was wanted, and the schema that did not hold it. Nothing otherwise.
+string[2][] wantedRecord(string kind, string name, string field) {
+    auto w = wanted(kind, name, field);
+    if (w.length > 0) w ~= ["schema", PLUGIN_VERSION];
+    return w;
 }
 
 /// The store this call reaches: the node's, under the token it handed for this
@@ -287,7 +308,17 @@ unittest {
     assert(s.name == "datapunt" && s.sigils.length == 2);
     assert(s.sigils[0].takes[0].oneOf == ["competitor"]);
     assert(s.sigils[1].http.path == "/api/datapunt/observe");
-    assert(s.sigils[0].takes[1].oneOf == ["subject", "field", "refused"]);
+    assert(s.sigils[0].takes[1].oneOf == ["subject", "field", "refused", "wanted"]);
+
+    // A read goes to the statements its by names.
+    assert(predicateFor("") == OBSERVED && predicateFor("subject") == OBSERVED && predicateFor("field") == OBSERVED);
+    assert(predicateFor("refused") == REFUSED);
+    assert(predicateFor("wanted") == WANTED);
+
+    // A question the schema cannot hold is written with the schema that could not.
+    assert(wantedRecord("competitor", "acme.nl", "cta.fax") ==
+        [["field", "cta.fax"], ["says", "no such field for competitor: cta.fax"], ["schema", PLUGIN_VERSION]]);
+    assert(wantedRecord("competitor", "acme.nl", "cta.form").length == 0);
 
     // An unknown path is a 404 that says which.
     HTTPRequest unknown;
