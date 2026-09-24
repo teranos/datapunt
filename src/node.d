@@ -43,6 +43,20 @@ private HTTP authed() {
 // which tool wrote it.
 enum OBSERVED = "datapunt:observed";
 
+// The lane for trying datapunt against a real node without saying anything
+// about a real subject: DATAPUNT_TEST=1 reads and writes this instead of
+// OBSERVED, and nothing in either lane sees the other.
+enum TEST = "datapunt:test";
+
+string predicateFor(string test) {
+    return test.length > 0 ? TEST : OBSERVED;
+}
+
+// The predicate this run reads and writes.
+string lane() {
+    return predicateFor(environment.get("DATAPUNT_TEST", ""));
+}
+
 // This module has a Record of its own — what a write carries — so the parsed
 // row comes in under the name of what it is.
 import records : SINCE, Pair, parse, Row = Record;
@@ -83,6 +97,22 @@ private string oldest(Row[] rows) {
     return out_;
 }
 
+// A read names its predicate and kind: the node holds refusals, questions and
+// the test lane under the same subjects, and the newest of those is not the
+// newest observation.
+string kindUrl(string node, string kind, string predicate, string until) {
+    return node ~ "/api/attestations?context=" ~ kind
+        ~ "&predicate=" ~ predicate
+        ~ "&since=" ~ SINCE
+        ~ (until.length ? "&until=" ~ until : "")
+        ~ "&limit=" ~ PAGE.to!string;
+}
+
+string subjectUrl(string node, string subject, string kind, string predicate) {
+    return node ~ "/api/attestations?subject=" ~ subject ~ "&context=" ~ kind
+        ~ "&predicate=" ~ predicate ~ "&since=" ~ SINCE;
+}
+
 // A kind is a walk backwards in time: rows come newest-first, each page ends
 // at its oldest row, and the next page asks `until` that row. The bound is
 // inclusive, so it arrives twice — the same claim read twice is the same claim.
@@ -90,10 +120,7 @@ string[] fetchKind(string kind) {
     string[] pages;
     string until;
     while (true) {
-        immutable url = nodeUrl() ~ "/api/attestations?context=" ~ kind
-            ~ "&since=" ~ SINCE
-            ~ (until.length ? "&until=" ~ until : "")
-            ~ "&limit=" ~ PAGE.to!string;
+        immutable url = kindUrl(nodeUrl(), kind, lane(), until);
         immutable page = page_(url);
         pages ~= page.body;
 
@@ -115,8 +142,8 @@ string[] fetchKind(string kind) {
     }
 }
 
-string fetchSubject(string subject) {
-    return body_(nodeUrl() ~ "/api/attestations?subject=" ~ subject ~ "&since=" ~ SINCE);
+string fetchSubject(string subject, string kind) {
+    return body_(subjectUrl(nodeUrl(), subject, kind, lane()));
 }
 
 // Who ran this, read rather than claimed: a human at a shell has neither
@@ -197,4 +224,21 @@ string escape(string s) {
         }
     }
     return out_;
+}
+
+unittest {
+    // The lane: datapunt:test when DATAPUNT_TEST says so, the real one otherwise.
+    assert(predicateFor("") == OBSERVED);
+    assert(predicateFor("1") == TEST);
+    assert(TEST == "datapunt:test");
+
+    // A read asks the node for one predicate and one kind, never everything
+    // the subject or the kind was ever said with.
+    assert(kindUrl("https://n", "competitor", OBSERVED, "") ==
+        "https://n/api/attestations?context=competitor&predicate=datapunt:observed&since=" ~ SINCE ~ "&limit=1000");
+    assert(kindUrl("https://n", "competitor", TEST, "2026-09-20T00:00:00Z") ==
+        "https://n/api/attestations?context=competitor&predicate=datapunt:test&since=" ~ SINCE ~
+        "&until=2026-09-20T00:00:00Z&limit=1000");
+    assert(subjectUrl("https://n", "acme.nl", "competitor", TEST) ==
+        "https://n/api/attestations?subject=acme.nl&context=competitor&predicate=datapunt:test&since=" ~ SINCE);
 }

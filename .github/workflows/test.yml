@@ -20,7 +20,9 @@ jobs:
       - name: The core, with no kind
         run: DATAPUNT_SCHEMAS= ./wind
       - name: Test
-        run: nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub test --config=plugin --compiler=ldc2
+        run: |
+          nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub test --config=plugin --compiler=ldc2
+          nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub test --config=cli --compiler=ldc2
       - name: Build
         run: |
           nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub build --config=plugin --compiler=ldc2 --build=release
