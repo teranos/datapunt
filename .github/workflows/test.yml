@@ -1,0 +1,27 @@
+# The core checks itself: the schema vets with no company's kind, and the
+# plugin tests and builds against the fixture kind in testdata. The release is
+# not here; QNTX's plugin-datapunt workflow builds what ships. cue, ldc and dub
+# all come from the nixpkgs flake.lock pins, as wind's cue does.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DATAPUNT_SCHEMAS: testdata/competitor.cue
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31.11.1
+      - name: The core, with no kind
+        run: DATAPUNT_SCHEMAS= ./wind
+      - name: Test
+        run: nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub test --config=plugin --compiler=ldc2
+      - name: Build
+        run: |
+          nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub build --config=plugin --compiler=ldc2 --build=release
+          nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub build --config=cli --compiler=ldc2
