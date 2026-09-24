@@ -3,20 +3,20 @@ module plugin.ats;
 
 import plugin.proto;
 import plugin.grpc : grpcCall;
-import plugin.punt : Record, OBSERVED, SINCE_MS;
+import plugin.punt : Record, SINCE_MS;
 
 struct Store {
     string endpoint;
     string token;
 }
 
-/// Every observation of a kind since SINCE_MS, one call: the node applies no
-/// limit when the filter names none (atsstore.proto). Null is the records;
-/// anything else is why the store did not give them.
-string readKind(Store store, string kind, out Record[] records) {
+/// Every statement of one predicate about a kind since SINCE_MS, one call: the
+/// node applies no limit when the filter names none (atsstore.proto). Null is
+/// the records; anything else is why the store did not give them.
+string readKind(Store store, string kind, string predicate, out Record[] records) {
     GetAttestationsRequest req;
     req.authToken = store.token;
-    req.filter.predicates = [OBSERVED];
+    req.filter.predicates = [predicate];
     req.filter.contexts = [kind];
     req.filter.timeStart = SINCE_MS;
 
@@ -29,13 +29,14 @@ string readKind(Store store, string kind, out Record[] records) {
     return null;
 }
 
-/// One attestation carrying every field known so far (the newest supersedes).
-/// Null is written; anything else is why it was not.
-string write(Store store, string subject, string kind, string[2][] attributes, string[] actors) {
+/// One attestation of a predicate about a subject: for an observation, every
+/// field known so far (the newest supersedes); for a refusal, what was refused
+/// and why. Null is written; anything else is why it was not.
+string write(Store store, string subject, string kind, string predicate, string[2][] attributes, string[] actors) {
     GenerateAttestationRequest req;
     req.authToken = store.token;
     req.command.subjects = [subject];
-    req.command.predicates = [OBSERVED];
+    req.command.predicates = [predicate];
     req.command.contexts = [kind];
     req.command.actors = actors;
     req.command.attributes = encodeStruct(attributes);

@@ -100,23 +100,25 @@ Signum signum() {
     s.name = PLUGIN_NAME;
     s.sigils = [
         Sigil("read",
-            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name no subject and say by subject or by field for coverage across the kind.",
+            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name no subject and say by subject or by field for coverage across the kind, or by refused for what the schema would not hold.",
             [
                 kind,
-                Param("by", "For a whole kind: coverage per subject, or per field, fullest first.", false, ["subject", "field"]),
+                Param("by", "For a whole kind: coverage per subject, or per field, fullest first; or the refusals, per field and value, most refused first.", false, ["subject", "field", "refused"]),
                 Param("name", "One subject, by its name."),
                 Param("field", "One field of that subject, by its dotted path.", false, fieldPaths()),
-                Param("prefix", "With by field: one subtree, as the schema nests it."),
+                Param("prefix", "With by field or by refused: one subtree, as the schema nests it."),
             ],
             [
                 Field("kind", "The kind that was read."),
                 Field("rows", "One row per subject, per field, or the one value, as asked."),
                 Field("observed", "How many of the cells asked about are observed."),
                 Field("of", "How many cells were asked about."),
+                Field("refused", "By refused: how many refusals were read."),
+                Field("standing", "By refused: how many rows the schema as compiled would still refuse."),
             ],
             Endpoint("GET", "/api/datapunt/read")),
         Sigil("observe",
-            "Write down one value seen for one field of one subject. Only a value verified by looking is written; a field looked for and not found is false.",
+            "Write down one value seen for one field of one subject. Only a value verified by looking is written; a field looked for and not found is false. A field or value the schema does not hold is refused, and the refusal is written down: read by refused.",
             [
                 kind,
                 Param("name", "The subject, by its name.", true),
@@ -145,8 +147,9 @@ Answer handleHTTP(ref const HTTPRequest req) {
 
     if (req.method == "GET" && path == "/read") {
         auto sent = parseQuery(query);
+        auto predicate = sent.get("by", "") == "refused" ? REFUSED : OBSERVED;
         Record[] records;
-        if (auto why = readKind(call, sent.get("kind", ""), records)) return failed(why);
+        if (auto why = readKind(call, sent.get("kind", ""), predicate, records)) return failed(why);
         return read(sent.get("kind", ""), sent.get("by", ""), sent.get("name", ""),
             sent.get("field", ""), sent.get("prefix", ""), records);
     }
@@ -159,11 +162,20 @@ Answer handleHTTP(ref const HTTPRequest req) {
         if (name.length == 0) return refused("missing", "name", "observe needs name");
 
         Record[] records;
-        if (auto why = readKind(call, kind, records)) return failed(why);
-        string[2][] merged;
-        auto a = observe(kind, name, field, value, records, merged);
-        if (a.status != 200) return a;
-        if (auto why = write(call, name, kind, merged, actorsOf(req))) return failed(why);
+        if (auto why = readKind(call, kind, OBSERVED, records)) return failed(why);
+        string[2][] merged, refusal;
+        auto a = observe(kind, name, field, value, records, merged, refusal);
+        if (a.status != 200) {
+            // The caller is answered with the refusal either way. One the store
+            // would not keep is the node's fault, and the log says what.
+            if (refusal.length > 0) {
+                refusal ~= ["schema", PLUGIN_VERSION];
+                if (auto why = write(call, name, kind, REFUSED, refusal, actorsOf(req)))
+                    logError("[datapunt] the refusal was not written: %s", why);
+            }
+            return a;
+        }
+        if (auto why = write(call, name, kind, OBSERVED, merged, actorsOf(req))) return failed(why);
         return a;
     }
 
@@ -275,6 +287,7 @@ unittest {
     assert(s.name == "datapunt" && s.sigils.length == 2);
     assert(s.sigils[0].takes[0].oneOf == ["competitor"]);
     assert(s.sigils[1].http.path == "/api/datapunt/observe");
+    assert(s.sigils[0].takes[1].oneOf == ["subject", "field", "refused"]);
 
     // An unknown path is a 404 that says which.
     HTTPRequest unknown;
