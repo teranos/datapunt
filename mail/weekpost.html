@@ -1,0 +1,329 @@
+<title>Datapunt Ruitjes</title>
+<style>
+  /* Sugarpie by FontPanda, from dafont.com (sugarpie_2). Not committed: its file says All Rights Reserved. */
+  @font-face { font-family: "Sugarpie"; src: url(Sugarpie.ttf) format("truetype"); }
+  :root { color-scheme: light; --desk: #cfc6b2; }
+  body { background: var(--desk); }
+  .wrap { padding-inline: 16px; padding-block: 24px 48px; margin: 0 auto; max-width: 440px; }
+  canvas { width: 100%; height: auto; display: block; filter: drop-shadow(0 1px 1px rgba(70,55,30,.25)) drop-shadow(0 10px 14px rgba(70,55,30,.2)); }
+</style>
+<div class="wrap" id="mail"></div>
+
+<script>
+// The week to draw, set by whoever renders the page before it loads:
+// { LABEL, DAYS, WEEK, COVERAGE, WRITES: {terminal, web, sigil}, GREEN, RED,
+//   SCHEMA: [{day, fields, add, del, say}], TOP: [[title, [[amount, name, thing]]]] }
+// No week's data lives in this file.
+const { LABEL, DAYS, WEEK, COVERAGE, WRITES, GREEN, RED, SCHEMA, TOP } = window.WEEKPOST;
+
+const W = 400, H = 2340, CELL = 8;
+const PAPER = "#e2d2ae", LEAD = [44, 40, 34], INK = [34, 30, 26], PEN = [30, 55, 125], GRN = [72, 128, 72], RD = [178, 62, 50];
+
+function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646; }
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+const grain = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const g = c.getContext("2d"), d = g.createImageData(256, 256), r = rng(7);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const v = 120 + (r() - .5) * 70;
+    d.data[i] = v; d.data[i + 1] = v * .95; d.data[i + 2] = v * .85; d.data[i + 3] = 26;
+  }
+  g.putImageData(d, 0, 0);
+  return c;
+})();
+
+function strip() {
+  const cv = document.createElement("canvas"), dpr = 3;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const r = rng(91);
+
+  // Torn out along the left, the way a page leaves a schrift: a ragged edge
+  // that wanders, with now and then a deeper bite. Top, right and bottom are cut.
+  const edge = [];
+  for (let y = 0, x = 2; y <= H; y += 3) {
+    x += (r() - .5) * .9 + (2 - x) * .15;
+    edge.push([Math.max(.5, Math.min(4, x)), y]);
+  }
+  ctx.beginPath();
+  ctx.moveTo(edge[0][0], 0);
+  ctx.lineTo(W, 0); ctx.lineTo(W, H); ctx.lineTo(edge[edge.length - 1][0], H);
+  for (let i = edge.length - 1; i >= 0; i--) ctx.lineTo(edge[i][0], edge[i][1]);
+  ctx.closePath();
+  ctx.clip();
+
+  ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
+  const tone = ctx.createLinearGradient(0, 0, W, 0);
+  tone.addColorStop(0, "rgba(140,105,55,.22)"); tone.addColorStop(.1, "rgba(245,235,210,.12)");
+  tone.addColorStop(.9, "rgba(245,235,210,.12)"); tone.addColorStop(1, "rgba(140,105,55,.22)");
+  ctx.fillStyle = tone; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = ctx.createPattern(grain, "repeat"); ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 9; i++) {
+    const x = r() * W, y = r() * H, s = 2 + r() * 6;
+    const f = ctx.createRadialGradient(x, y, 0, x, y, s * 3);
+    f.addColorStop(0, "rgba(140,95,45,.14)"); f.addColorStop(1, "rgba(140,95,45,0)");
+    ctx.fillStyle = f; ctx.fillRect(x - s * 3, y - s * 3, s * 6, s * 6);
+  }
+  // Minor squares, and every fifth line heavier: the lines text stands on.
+  for (let x = CELL, i = 1; x < W; x += CELL, i++) {
+    const major = i % 5 === 0;
+    ctx.lineWidth = major ? 1 : .55;
+    ctx.strokeStyle = `rgba(95,102,112,${major ? .34 : .15})`;
+    ctx.beginPath(); ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); ctx.stroke();
+  }
+  for (let y = CELL, i = 1; y < H; y += CELL, i++) {
+    const major = i % 5 === 0;
+    ctx.lineWidth = major ? 1 : .55;
+    ctx.strokeStyle = `rgba(95,102,112,${major ? .34 : .15})`;
+    ctx.beginPath(); ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); ctx.stroke();
+  }
+
+  // The margin line: printed magenta, top to bottom, on the heavy line at 40.
+  for (let y = 0; y < H; y += 20) {
+    ctx.strokeStyle = `rgba(196,58,122,${.55 + r() * .12})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(40.5, y); ctx.lineTo(40.5, y + 20); ctx.stroke();
+  }
+
+  // The torn edge shows the paper's lighter core in a thin, frayed rim.
+  ctx.save();
+  ctx.lineCap = "round";
+  edge.forEach(([x, y], i) => {
+    if (!i) return;
+    const [px, py] = edge[i - 1];
+    ctx.strokeStyle = `rgba(248,240,220,${.2 + r() * .2})`;
+    ctx.lineWidth = .6 + r() * .6;
+    ctx.beginPath(); ctx.moveTo(px + 1, py); ctx.lineTo(x + 1, y); ctx.stroke();
+    if (r() < .05) {
+      ctx.strokeStyle = "rgba(248,240,220,.5)"; ctx.lineWidth = .6;
+      ctx.beginPath(); ctx.moveTo(x + 1, y); ctx.lineTo(x - 1.5 - r() * 2, y + (r() - .5) * 3); ctx.stroke();
+    }
+  });
+  ctx.restore();
+
+  const mul = fn => { ctx.save(); ctx.globalCompositeOperation = "multiply"; fn(); ctx.restore(); };
+  const s = {
+    cv, ctx,
+    // Pencil hatching in three weights: 1 light, 2 medium, 3 crosshatched dark.
+    hatch(path, level) {
+      mul(() => {
+        path(); ctx.clip();
+        const b = { x: 0, y: 0, w: W, h: H };
+        const lines = (angle, step, a) => {
+          ctx.lineWidth = .75;
+          const len = W + H;
+          for (let i = -len; i < len; i += step) {
+            ctx.strokeStyle = rgba(LEAD, a * (.6 + r() * .4));
+            ctx.beginPath();
+            if (angle > 0) { ctx.moveTo(i + (r() - .5), H); ctx.lineTo(i + H + (r() - .5), 0); }
+            else { ctx.moveTo(i + (r() - .5), 0); ctx.lineTo(i + H + (r() - .5), H); }
+            ctx.stroke();
+          }
+        };
+        if (level === 1) lines(1, 3.6, .55);
+        if (level === 2) { lines(1, 2.2, .7); ctx.fillStyle = rgba(LEAD, .06); ctx.fillRect(0, 0, W, H); }
+        if (level === 3) { lines(1, 2, .75); lines(-1, 2.4, .6); ctx.fillStyle = rgba(LEAD, .1); ctx.fillRect(0, 0, W, H); }
+      });
+    },
+    rect(x, y, w, h, level) { if (w > 0 && h > 0) s.hatch(() => { ctx.beginPath(); ctx.rect(x, y, w, h); }, level); },
+    // A block in coloured pencil, pressed hard.
+    block(x, y, w, h, color) {
+      mul(() => {
+        ctx.beginPath(); ctx.rect(x + .5, y + .5, w - 1, h - 1); ctx.clip();
+        ctx.fillStyle = rgba(color, .55); ctx.fillRect(x, y, w, h);
+        ctx.lineWidth = .8;
+        for (let i = -h; i < w; i += 1.6) {
+          ctx.strokeStyle = rgba(color, .35 + r() * .3);
+          ctx.beginPath(); ctx.moveTo(x + i, y + h + 1); ctx.lineTo(x + i + h, y - 1); ctx.stroke();
+        }
+      });
+    },
+    line(pts, color = LEAD, a = .8, w = 1.1) {
+      mul(() => {
+        ctx.strokeStyle = rgba(color, a); ctx.lineWidth = w; ctx.lineCap = "round"; ctx.lineJoin = "round";
+        ctx.beginPath();
+        pts.forEach(([x, y], i) => {
+          const jx = x + (r() - .5) * .7, jy = y + (r() - .5) * .7;
+          if (!i) ctx.moveTo(jx, jy);
+          else {
+            const [px, py] = pts[i - 1];
+            ctx.quadraticCurveTo((px + x) / 2 + (r() - .5) * 1.2, (py + y) / 2 + (r() - .5) * 1.2, jx, jy);
+          }
+        });
+        ctx.stroke();
+      });
+    },
+    // Ballpoint: blue, thin, a second faint pass beside the first.
+    pen(pts, w = 1.1) { s.line(pts, PEN, .85, w); s.line(pts.map(([x, y]) => [x + .4, y + .3]), PEN, .25, .6); },
+    text(t, x, y, size = 12, align = "left", color = INK, a = .9, weight = 400) {
+      mul(() => {
+        ctx.font = `${Math.round(size * 1.25)}px "Sugarpie", cursive`;
+        ctx.fillStyle = rgba(color, a); ctx.textAlign = align; ctx.textBaseline = "alphabetic";
+        ctx.fillText(t, x, y);
+      });
+    },
+    heading(t, y) {
+      s.text(t, 20, y, 16, "left", INK, .95, 500);
+      s.pen([[20, y + 6], [110, y + 7], [200, y + 6], [380, y + 7]], .9);
+    },
+    yAxis(x, top, base, ticks, toY, title, right = false) {
+      s.line([[x, top - 6], [x, base]], LEAD, .8, .9);
+      ticks.forEach(v => {
+        const y = toY(v);
+        s.line([[x + (right ? 4 : -4), y], [x, y]], LEAD, .8, .9);
+        s.text(String(v), x + (right ? 7 : -7), y + 3.5, 10, right ? "left" : "right", INK, .8);
+      });
+      s.text(title, right ? x + 6 : x - 6, top - 14, 10.5, right ? "right" : "left", INK, .85);
+    },
+    xAxis(x0, x1, base, ticks, title) {
+      s.line([[x0, base], [x1, base]], LEAD, .8, .9);
+      ticks.forEach(([x, l]) => {
+        s.line([[x, base], [x, base + 4]], LEAD, .8, .9);
+        s.text(l, x, base + 16, 10, "center", INK, .8);
+      });
+      s.text(title, x1, base + 32, 10.5, "right", INK, .85);
+    },
+  };
+  return s;
+}
+
+
+// Everything sits on the squares. A square is 8 across; every fifth line is heavy,
+// 40 apart. c(n) is the nth vertical line, l(n) the nth horizontal one.
+// Text starts, ends or centres on a heavy vertical line and stands on a heavy
+// horizontal one wherever the data lets it.
+const c = n => n * CELL, l = n => n * CELL;
+const LEFT = 5, AXIS = 10, RIGHT = 45; // heavy lines at 40, 80 and 360
+
+function draw() {
+  const s = strip();
+  const T = (t, col, row, size = 11, align = "left", color = INK, a = .9, w = 400) => s.text(t, c(col) + (col === LEFT && align === "left" ? 4 : 0), l(row), size, align, color, a, w);
+  const along = (c0, c1, row, w = 1) => s.pen([[c(c0), l(row) + 1], [c((c0 + c1) / 2), l(row) + 1.4], [c(c1), l(row) + 1]], w);
+  const heading = (t, row) => { T(t, LEFT, row - .25, 16, "left", INK, .95, 500); along(LEFT, RIGHT, row, .9); };
+  const bracket = (c0, c1, row) => s.pen([[c(c0), l(row + 1)], [c(c0), l(row)], [c(c1), l(row)], [c(c1), l(row + 1)]], .9);
+  // Tick values start on the heavy line at 40; the axis is the heavy line at 80.
+  const axisY = (top, base, ticks, title, titleRow) => {
+    s.line([[c(AXIS), l(top)], [c(AXIS), l(base)]], LEAD, .85, .9);
+    ticks.forEach(([row, label, color]) => { s.line([[c(AXIS) - 4, l(row)], [c(AXIS), l(row)]], LEAD, .85, .9); T(label, LEFT, row, 10, "left", color || INK, .9); });
+    T(title, LEFT, titleRow, 11, "left", INK, .9);
+  };
+  const xAxis = (row, ticks) => {
+    s.line([[c(AXIS), l(row)], [c(RIGHT), l(row)]], LEAD, .85, .9);
+    ticks.forEach(([col]) => s.line([[c(col), l(row)], [c(col), l(row) + 4]], LEAD, .85, .9));
+  };
+  const labels = (ticks, row) => { ticks.forEach(([col, d]) => T(d, col, row, 10, "center", INK, .9)); };
+
+  T("datapunt", LEFT, 5, 22, "left", INK, .95, 500);
+  T(LABEL, RIGHT, 5, 12, "right", INK, .85);
+
+  // Days 15 … 25 three squares apart, from the heavy line at 120: 15, 20 and 25 fall on heavy lines.
+  const D = i => 15 + 3 * i, n = DAYS.length;
+  const dayTicks = DAYS.map((d, i) => [D(i), d]);
+
+  heading("velden gezien", 10);
+  {
+    const base = 30, Y = v => l(base) - v / 200 * CELL; // 1000 fields to five squares
+    axisY(17, base, [[30, "0"], [25, "1000"], [20, "2000"]], "velden", 15);
+    const pts = COVERAGE.map((v, i) => [c(D(i)), Y(v)]);
+    s.hatch(() => { const x = s.ctx; x.beginPath(); x.moveTo(pts[0][0], l(base)); pts.forEach(([a, b]) => x.lineTo(a, b)); x.lineTo(pts[n - 1][0], l(base)); x.closePath(); }, 1);
+    s.line(pts, LEAD, .9, 1.4);
+    pts.forEach(([a, b]) => s.line([[a - 1.5, b], [a + 1.5, b]], LEAD, .9, 2.4));
+    T(String(COVERAGE[COVERAGE.length - 1]), RIGHT, 15, 11, "right", INK, .95, 500);
+    bracket(D(3), D(9), 15);
+    xAxis(base, dayTicks);
+    labels(dayTicks, 35); T("sep", LEFT, 35, 10, "left", INK, .9);
+  }
+
+  heading("schrijfacties", 45);
+  {
+    const base = 65, Y = v => l(base) - v / 100 * CELL; // 500 writes to five squares
+    axisY(54, base, [[65, "0"], [60, "500"], [55, "1000"]], "per dag", 50);
+    const acc = new Array(n).fill(0);
+    [["terminal", 1], ["web", 2], ["sigil", 3]].forEach(([k, level]) => {
+      const lo = acc.slice(), hi = acc.map((v, i) => v + WRITES[k][i]);
+      s.hatch(() => { const x = s.ctx; x.beginPath(); hi.forEach((v, i) => i ? x.lineTo(c(D(i)), Y(v)) : x.moveTo(c(D(i)), Y(v))); for (let i = n - 1; i >= 0; i--) x.lineTo(c(D(i)), Y(lo[i])); x.closePath(); }, level);
+      s.line(hi.map((v, i) => [c(D(i)), Y(v)]), LEAD, .75, .9);
+      hi.forEach((v, i) => acc[i] = v);
+    });
+    T("875", 20, 55, 11, "left", INK, .95, 500);
+    T("132", D(8), 60, 11, "center", INK, .95, 500);
+    bracket(D(3), D(9), 50);
+    xAxis(base, dayTicks);
+    labels(dayTicks, 70); T("sep", LEFT, 70, 10, "left", INK, .9);
+    [["terminal", 1], ["web", 2], ["sigil", 3]].forEach(([k, level], i) => {
+      const col = LEFT + i * 15;
+      s.rect(c(col), l(74), 2 * CELL, CELL, level);
+      T(k, col + 5, 75, 11);
+    });
+  }
+
+  heading("nieuw en overschreven", 85);
+  {
+    const zero = 110; // a green square per 100 new fields, a red one per 2 values overwritten
+    axisY(94, zero + 10, [[110, "0"], [105, "500"], [100, "1000"], [95, "1500"], [115, "10", RD], [120, "20", RD]], "velden nieuw", 90);
+    GREEN.forEach((v, i) => {
+      if (v) {
+        const h = Math.ceil(v / 100);
+        s.block(c(D(i) - 1), l(zero - h), 2 * CELL, h * CELL, GRN);
+        T(String(v), D(i), zero - h - 1, 10, "center", INK, .95, 500);
+      }
+      if (RED[i]) {
+        const h = Math.ceil(RED[i] / 2);
+        s.block(c(D(i) - 1), l(zero), 2 * CELL, h * CELL, RD);
+        T(String(RED[i]), D(i), zero + h + 2, 10, "center", RD, .95, 500);
+      }
+    });
+    bracket(D(3), D(9), 90);
+    xAxis(zero, []);
+    labels(dayTicks, 125); T("sep", LEFT, 125, 10, "left", INK, .9);
+    T("overschreven", LEFT, 130, 11, "left", RD, .95);
+  }
+
+  heading("schema", 140);
+  {
+    const base = 160, S = d => 15 + 2 * (d - 11), R = v => base - (v - 75); // a square per field; the 11th on a heavy line
+    axisY(149, base, [[160, "75"], [155, "80"], [150, "85"]], "velden", 145);
+    const pts = [];
+    SCHEMA.forEach((v, i) => {
+      if (i) pts.push([c(S(v.day)), l(R(SCHEMA[i - 1].fields))]);
+      pts.push([c(S(v.day)), l(R(v.fields))]);
+    });
+    pts.push([c(S(25)), l(R(82))]);
+    s.pen(pts, 1.3);
+    SCHEMA.forEach(v => {
+      const g = v.day === 11 ? 0 : v.add;
+      for (let k = 0; k < g; k++) s.block(c(S(v.day)), l(base - 1 - k), CELL, CELL, GRN);
+      for (let k = 0; k < v.del; k++) s.block(c(S(v.day) + 1), l(base - 1 - k), CELL, CELL, RD);
+    });
+    T("78", S(11), R(78) - 1, 11, "left", PEN, .95, 500);
+    T("3 types", S(13), R(78) - 4, 11, "left", PEN, .95);
+    T("+ llms_txt", S(17), R(79) - 6, 11, "right", PEN, .95);
+    T("+ login.*", S(18) + 1, R(82) - 2, 11, "left", PEN, .95);
+    T("nix -> cue", S(23), R(82) - 5, 11, "center", PEN, .95);
+    bracket(S(18), S(24), 145);
+    const ticks = [11, 13, 15, 17, 19, 21, 23, 25].map(d => [S(d), String(d)]);
+    xAxis(base, ticks);
+    labels(ticks, 165); T("sep", LEFT, 165, 10, "left", INK, .9);
+  }
+
+  // top 3s, one under the other: amount on 80, name on 120, what on 320 — all heavy lines.
+  TOP.forEach(([title, rows], j) => {
+    const r0 = 175 + j * 30, r1 = r0 + 25;
+    T(title, AXIS, r0 + 5 - .25, 12, "left", INK, .95, 500);
+    along(AXIS, 40, r0 + 5, .8);
+    rows.forEach(([amount, name, thing], i) => {
+      const r = r0 + 10 + i * 5;
+      T(amount, AXIS, r, 16, "left", INK, .95, 500);
+      T(name, 15, r, 11, "left", INK, .9);
+      T(thing, 40, r, 10, "right", INK, .6);
+    });
+    s.pen([[c(LEFT), l(r0)], [c(RIGHT), l(r0)], [c(RIGHT), l(r1)], [c(LEFT), l(r1)], [c(LEFT), l(r0)]], 1);
+  });
+
+  document.getElementById("mail").appendChild(s.cv);
+}
+
+document.fonts.load('16px "Sugarpie"').then(draw, draw);
+</script>
