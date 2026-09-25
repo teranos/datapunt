@@ -25,7 +25,17 @@ and copanies to do datapunt work for"
 
 "and the datapunt repo becomes an agnostic core"
 
+Brandon, 2026-09-25, on datapunt's color:
+
+"Let's say we adopt their note element beige as base"
+
+The base is `#f5edb8`, the background of QNTX's note element
+(`web/ts/components/element/note-element.ts` there). The note element pairs
+it with ink `#2a2a2a`, edge `#d4c59a` and muted `#8a7a5a`.
+
 ## Open
 
 - [ ] Automate datapunt analysis of competitors, beyond Clean, as stoke
       handlers on QNTX.
+- [ ] Put the base to use. The plugin draws nothing yet: it registers no
+      canvas element, and QNTX's plugin metadata has no field for a color.
