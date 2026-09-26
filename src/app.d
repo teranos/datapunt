@@ -2,7 +2,7 @@ module app;
 
 import std.stdio : writeln, writefln, stderr;
 import schema : fields, kinds, Field;
-import node : fetchSubject, fetchKind, write, OBSERVED;
+import node : fetchSubject, fetchKind, write, lane;
 import records : parse, newest, attribute, Record, newestBySubject;
 import jsonl : provenance;
 
@@ -24,8 +24,8 @@ private bool legalValue(const(Field)* f, string v) {
     return false;
 }
 
-private Record current(string subject) {
-    return newest(parse(fetchSubject(subject)));
+private Record current(string kind, string subject) {
+    return newest(parse(fetchSubject(subject, kind)));
 }
 
 // Every page of the kind, as one set of records. What a page was is the node's
@@ -63,7 +63,7 @@ private int usage() {
 }
 
 private int unobserved(string kind, string name) {
-    auto r = current(name);
+    auto r = current(kind, name);
     foreach (f; fields) {
         if (f.kind != kind) continue;
         if (attribute(r, f.path) !is null) continue;
@@ -136,7 +136,7 @@ private int coverage(string kind) {
 // the transcript of the run that wrote it, and that run is not this one — a
 // write that inherited it would name a row it never read.
 private int observe(string kind, string name, string path, string value, string[] argv) {
-    auto r = current(name);
+    auto r = current(kind, name);
     string[2][] merged;
     bool replaced;
     foreach (p; r.attributes) {
@@ -145,7 +145,7 @@ private int observe(string kind, string name, string path, string value, string[
     }
     if (!replaced) merged ~= [path, value];
     auto prov = provenance(argv);
-    cast(void) write(name, kind, OBSERVED, merged, prov.pairs, prov.fetched);
+    cast(void) write(name, kind, lane(), merged, prov.pairs, prov.fetched);
     writeln("true");
     return 0;
 }
@@ -199,7 +199,7 @@ int main(string[] argv) {
         // One word cannot be both, and as one word it inverted: a recorded
         // `false` printed `true`, because it printed the question's answer and
         // not the field's.
-        immutable v = attribute(current(name), path);
+        immutable v = attribute(current(kind, name), path);
         if (v is null) return 1;
         writeln(v);
         return 0;

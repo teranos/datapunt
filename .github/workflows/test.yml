@@ -1,0 +1,43 @@
+{
+  "jobs": {
+    "test": {
+      "env": {
+        "DATAPUNT_SCHEMAS": "testdata/competitor.cue"
+      },
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "uses": "actions/checkout@v5"
+        },
+        {
+          "uses": "cachix/install-nix-action@v31.11.1"
+        },
+        {
+          "name": "The workflow is what ci/test.nix emits",
+          "run": "nix eval --json --file ci/test.nix | nix shell --inputs-from . nixpkgs#jq -c jq . | diff - .github/workflows/test.yml\n"
+        },
+        {
+          "name": "The core, with no kind",
+          "run": "DATAPUNT_SCHEMAS= ./wind"
+        },
+        {
+          "name": "Test",
+          "run": "nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub test --config=plugin --compiler=ldc2\nnix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub test --config=cli --compiler=ldc2\n"
+        },
+        {
+          "name": "Build",
+          "run": "nix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub build --config=plugin --compiler=ldc2 --build=release\nnix shell --inputs-from . nixpkgs#ldc nixpkgs#dub -c dub build --config=cli --compiler=ldc2\n"
+        }
+      ]
+    }
+  },
+  "name": "test",
+  "on": {
+    "pull_request": null,
+    "push": {
+      "branches": [
+        "main"
+      ]
+    }
+  }
+}
