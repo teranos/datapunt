@@ -17,7 +17,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.1-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.2-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -32,9 +32,13 @@ string schemaDigest(string schema) {
     return out_.idup;
 }
 
-// Who is asking, as the node admitted them (server/plugin_sigils.go).
+// Who is asking, as the node admitted them (server/plugin_sigils.go): the
+// person, the token that asked for them and its name, and the OAuth client a
+// connector's token was issued through.
 enum HEADER_ASKER = "x-qntx-asker";
 enum HEADER_ASKER_DID = "x-qntx-asker-did";
+enum HEADER_ASKER_LABEL = "x-qntx-asker-label";
+enum HEADER_ASKER_CLIENT = "x-qntx-asker-client";
 // What this one call presents to the ATS store: it reaches the namespace the
 // caller acts in, and nothing else does.
 enum HEADER_STORE_TOKEN = "x-qntx-store-token";
@@ -216,20 +220,26 @@ string callStore(ref const HTTPRequest req, out Store call) {
     return "the node handed no store token for this call, so which namespace the caller acts in is unknown";
 }
 
-/// datapunt, and whoever the node admitted: the token's own DID when a token
-/// asked, the identity that admitted them otherwise. Nobody named is datapunt.
+/// datapunt, and everything the node says about who asked: the token's name,
+/// its own DID, the client it was issued through, and the person it speaks
+/// for. Nobody named is datapunt.
+///
+/// "i know i minted the oauth specifically for Manus to use and the token even
+/// has a name"
 string[] actorsOf(ref const HTTPRequest req) {
-    string asker, did;
+    string asker, did, label, client;
     foreach (ref h; req.headers) {
         import std.uni : toLower;
         auto name = h.name.toLower;
         if (h.values.length == 0) continue;
+        if (name == HEADER_ASKER_LABEL) label = h.values[0];
         if (name == HEADER_ASKER_DID) did = h.values[0];
+        if (name == HEADER_ASKER_CLIENT) client = h.values[0];
         if (name == HEADER_ASKER) asker = h.values[0];
     }
-    if (did.length > 0) return [PLUGIN_NAME, did];
-    if (asker.length > 0) return [PLUGIN_NAME, asker];
-    return [PLUGIN_NAME];
+    string[] who = [PLUGIN_NAME];
+    foreach (w; [label, did, client, asker]) if (w.length > 0) who ~= w;
+    return who;
 }
 
 // The store would not answer: the node's fault, and the log says what.
@@ -291,9 +301,18 @@ unittest {
     assert(sent["kind"] == "competitor" && sent["value"] == "");
     assert(parseBody(`[1]`, sent) == "the body is not a JSON object");
 
+    // A connector's token: its name, its DID, its client, and the person.
     HTTPRequest req;
-    req.headers = [HTTPHeader("X-Qntx-Asker", ["https://id"]), HTTPHeader("X-Qntx-Asker-Did", ["did:key:z6"])];
-    assert(actorsOf(req) == ["datapunt", "did:key:z6"]);
+    req.headers = [
+        HTTPHeader("X-Qntx-Asker", ["apple:001"]), HTTPHeader("X-Qntx-Asker-Did", ["did:key:ztoken"]),
+        HTTPHeader("X-Qntx-Asker-Label", ["ManusClean"]), HTTPHeader("X-Qntx-Asker-Client", ["did:key:zclient"]),
+    ];
+    assert(actorsOf(req) == ["datapunt", "ManusClean", "did:key:ztoken", "did:key:zclient", "apple:001"]);
+    // A token with no client: its name, its DID, and who minted it.
+    req.headers = [HTTPHeader("X-Qntx-Asker", ["https://id"]), HTTPHeader("X-Qntx-Asker-Did", ["did:key:z6"]),
+        HTTPHeader("X-Qntx-Asker-Label", ["a-script"])];
+    assert(actorsOf(req) == ["datapunt", "a-script", "did:key:z6", "https://id"]);
+    // A person: the person.
     req.headers = [HTTPHeader("X-Qntx-Asker", ["https://id"])];
     assert(actorsOf(req) == ["datapunt", "https://id"]);
     req.headers = null;
