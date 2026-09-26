@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -e
+repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+exec nix shell --inputs-from "$repo" nixpkgs#cue -c cue "$@"
