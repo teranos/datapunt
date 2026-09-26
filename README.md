@@ -25,7 +25,16 @@ and copanies to do datapunt work for"
 
 "and the datapunt repo becomes an agnostic core"
 
+Brandon, 2026-09-25, on the weekly mail:
+
+"It's settled that we will use the EMailService of QNTX over gRPC"
+
+`mail/` holds its template: subject, html and text, filled by QNTX's
+MailService with one value, `week`. The html shows one image inline, by
+`cid:weekpost` (teranos/QNTX#1002).
+
 ## Open
 
 - [ ] Automate datapunt analysis of competitors, beyond Clean, as stoke
       handlers on QNTX.
+- [ ] Draw the week as the PNG the mail shows under `cid:weekpost`.

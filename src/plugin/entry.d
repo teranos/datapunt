@@ -20,6 +20,14 @@ void main(string[] args) {
         } else if (args[i] == "--version") {
             writefln("qntx-%s-plugin %s", PLUGIN_NAME, PLUGIN_VERSION);
             return;
+        } else if (args[i] == "--weekpost" && i + 2 < args.length) {
+            // The weekly strip of a week given as the page's window.WEEKPOST,
+            // as PNG on stdout, at the device pixels to the pixel named.
+            import plugin.weekpost : drawWeek, weekFromJSON;
+            import std.file : readText;
+            auto week = weekFromJSON(readText(args[i + 1]));
+            stdout.rawWrite(drawWeek(week, args[i + 2].to!double));
+            return;
         }
     }
 
