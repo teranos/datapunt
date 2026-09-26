@@ -197,7 +197,7 @@ private Answer refusals(string kind, string prefix, Record[] refusedRecords) {
             `,"says":` ~ q(x.says) ~ `,"times":` ~ num(x.times) ~
             `,"subjects":` ~ num(x.subjects.length) ~ `,"last":` ~ num(x.last) ~ `,"stands":` ~ (stands ? "true" : "false") ~ `}`;
     }
-    return Answer(200, body ~ `],"refused":` ~ num(total) ~ `,"standing":` ~ num(standing) ~ `}`);
+    return Answer(200, body ~ `],"observed":null,"of":null,"refused":` ~ num(total) ~ `,"standing":` ~ num(standing) ~ `,"wanted":null}`);
 }
 
 /// Every field a read of a kind asked for and the schema did not hold, most
@@ -213,7 +213,7 @@ private Answer wants(string kind, string prefix, Record[] wantedRecords) {
         body ~= (i ? "," : "") ~ `{"field":` ~ q(x.field) ~ `,"says":` ~ q(x.says) ~ `,"times":` ~ num(x.times) ~
             `,"subjects":` ~ num(x.subjects.length) ~ `,"last":` ~ num(x.last) ~ `,"stands":` ~ (stands ? "true" : "false") ~ `}`;
     }
-    return Answer(200, body ~ `],"wanted":` ~ num(total) ~ `,"standing":` ~ num(standing) ~ `}`);
+    return Answer(200, body ~ `],"observed":null,"of":null,"refused":null,"standing":` ~ num(standing) ~ `,"wanted":` ~ num(total) ~ `}`);
 }
 
 /// What a read of one subject wanted that the schema does not hold, to be
@@ -322,10 +322,15 @@ Answer refused(string why, string param, string says) {
     return Answer(status, `{"why":` ~ q(why) ~ `,"param":` ~ q(param) ~ `,"says":` ~ q(says) ~ `}`);
 }
 
+// The node holds an answer to exactly what read says it gives
+// (server/sigil/sigil.go, Holds): every field, and none besides. A read of
+// coverage has no refusals or questions in it, and a read of those has no
+// coverage, so what a read was not asked is null: not zero, which would be a
+// count.
 private Answer answered(string kind, string[] rows, size_t observed, size_t of) {
     string body = `{"kind":` ~ q(kind) ~ `,"rows":[`;
     foreach (i, r; rows) body ~= (i ? "," : "") ~ r;
-    return Answer(200, body ~ `],"observed":` ~ num(observed) ~ `,"of":` ~ num(of) ~ `}`);
+    return Answer(200, body ~ `],"observed":` ~ num(observed) ~ `,"of":` ~ num(of) ~ `,"refused":null,"standing":null,"wanted":null}`);
 }
 
 private string num(size_t n) {
@@ -373,9 +378,9 @@ unittest {
     // One value, and one unobserved.
     auto one = read("competitor", "", "acme.nl", "cta.form", "", rs);
     assert(one.status == 200);
-    assert(one.body == `{"kind":"competitor","rows":[{"field":"cta.form","type":"bool","observed":true,"value":"false"}],"observed":1,"of":1}`);
+    assert(one.body == `{"kind":"competitor","rows":[{"field":"cta.form","type":"bool","observed":true,"value":"false"}],"observed":1,"of":1,"refused":null,"standing":null,"wanted":null}`);
     auto none = read("competitor", "", "beta.nl", "cta.form", "", rs);
-    assert(none.body == `{"kind":"competitor","rows":[{"field":"cta.form","type":"bool","observed":false,"value":null}],"observed":0,"of":1}`);
+    assert(none.body == `{"kind":"competitor","rows":[{"field":"cta.form","type":"bool","observed":false,"value":null}],"observed":0,"of":1,"refused":null,"standing":null,"wanted":null}`);
 
     // A field the schema does not declare is refused by name.
     auto nosuch = read("competitor", "", "acme.nl", "cta.fax", "", rs);
@@ -388,7 +393,7 @@ unittest {
     auto bySubject = read("competitor", "subject", "", "", "", rs);
     assert(bySubject.status == 200);
     auto byField = read("competitor", "field", "", "", "cta", rs);
-    assert(byField.body == `{"kind":"competitor","rows":[{"field":"cta.form","type":"bool","subjects":1},{"field":"cta.phone","type":"string","subjects":0},{"field":"cta.whatsapp","type":"absentOrString","subjects":0}],"observed":1,"of":6}`);
+    assert(byField.body == `{"kind":"competitor","rows":[{"field":"cta.form","type":"bool","subjects":1},{"field":"cta.phone","type":"string","subjects":0},{"field":"cta.whatsapp","type":"absentOrString","subjects":0}],"observed":1,"of":6,"refused":null,"standing":null,"wanted":null}`);
     assert(read("competitor", "field", "", "", "ct", rs).body == `{"why":"not one of","param":"prefix","says":"no field under ct for competitor"}`);
 
     // Observe carries the declared fields forward and drops the rest.
@@ -427,20 +432,20 @@ unittest {
     auto empty = read("competitor", "refused", "", "", "login",
         [Record("acme.nl", t0, [["field", "login.audience"], ["value", null], ["says", "empty"]])]);
     assert(empty.body == `{"kind":"competitor","rows":[{"field":"login.audience","value":"","says":"empty","times":1,"subjects":1,"last":` ~
-        num(t0) ~ `,"stands":true}],"refused":1,"standing":1}`);
+        num(t0) ~ `,"stands":true}],"observed":null,"of":null,"refused":1,"standing":1,"wanted":null}`);
     auto byRefused = read("competitor", "refused", "", "", "", refusals_);
     assert(byRefused.status == 200);
     assert(byRefused.body == `{"kind":"competitor","rows":[` ~
         `{"field":"login.audience","value":"everyone","says":"new","times":2,"subjects":2,"last":` ~ num(t0 + 2) ~ `,"stands":true},` ~
         `{"field":"cta.fax","value":"020 999","says":"no fax","times":1,"subjects":1,"last":` ~ num(t0 + 1) ~ `,"stands":true},` ~
         `{"field":"cta.form","value":"yes","says":"once","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false}` ~
-        `],"refused":4,"standing":2}`);
+        `],"observed":null,"of":null,"refused":4,"standing":2,"wanted":null}`);
     auto ctaRefused = read("competitor", "refused", "", "", "cta", refusals_);
     assert(ctaRefused.body == `{"kind":"competitor","rows":[` ~
         `{"field":"cta.fax","value":"020 999","says":"no fax","times":1,"subjects":1,"last":` ~ num(t0 + 1) ~ `,"stands":true},` ~
         `{"field":"cta.form","value":"yes","says":"once","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false}` ~
-        `],"refused":2,"standing":1}`);
-    assert(read("competitor", "refused", "", "", "", []).body == `{"kind":"competitor","rows":[],"refused":0,"standing":0}`);
+        `],"observed":null,"of":null,"refused":2,"standing":1,"wanted":null}`);
+    assert(read("competitor", "refused", "", "", "", []).body == `{"kind":"competitor","rows":[],"observed":null,"of":null,"refused":0,"standing":0,"wanted":null}`);
 
     assert(q("a\"b\\c\nd\x01") == `"a\"b\\c\nd\u0001"`);
 }
@@ -475,6 +480,6 @@ unittest {
     assert(read("competitor", "wanted", "", "", "", asked).body == `{"kind":"competitor","rows":[` ~
         `{"field":"cta.fax","says":"b","times":3,"subjects":2,"last":` ~ num(t0 + 2) ~ `,"stands":true},` ~
         `{"field":"cta.form","says":"d","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false}` ~
-        `],"wanted":4,"standing":1}`);
-    assert(read("competitor", "wanted", "", "", "login", asked).body == `{"kind":"competitor","rows":[],"wanted":0,"standing":0}`);
+        `],"observed":null,"of":null,"refused":null,"standing":1,"wanted":4}`);
+    assert(read("competitor", "wanted", "", "", "login", asked).body == `{"kind":"competitor","rows":[],"observed":null,"of":null,"refused":null,"standing":0,"wanted":0}`);
 }
