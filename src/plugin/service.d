@@ -17,7 +17,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.0-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.1-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -345,6 +345,38 @@ unittest {
     bare.method = "GET";
     bare.path = "/read?kind=competitor&by=subject";
     assert(handleHTTP(bare).status == 500);
+}
+
+// The node holds an answer to exactly what its sigil says it gives: every field,
+// and none besides (QNTX's server/sigil/sigil.go, Holds). 0.3.0 gave read three
+// fields its coverage answers did not carry, and the node refused every read.
+// Each kind of answer is held to it here, as the node holds it.
+unittest {
+    import std.algorithm : sort;
+    import std.json : parseJSON;
+
+    string[] names(const Field[] gives) { string[] out_; foreach (g; gives) out_ ~= g.name; out_.sort(); return out_; }
+    string[] keys(string body_) { string[] out_; foreach (k, _; parseJSON(body_).object) out_ ~= k; out_.sort(); return out_; }
+
+    auto s = signum();
+    auto readGives = names(s.sigils[0].gives), observeGives = names(s.sigils[1].gives);
+    enum t0 = SINCE_MS + 1000;
+    Record[] rs = [Record("acme.nl", t0, [["url", "https://acme.nl"], ["cta.form", "true"]])];
+    foreach (a; [
+        read("competitor", "field", "", "", "", rs),
+        read("competitor", "subject", "", "", "", rs),
+        read("competitor", "", "acme.nl", "", "", rs),
+        read("competitor", "", "acme.nl", "cta.form", "", rs),
+        read("competitor", "refused", "", "", "", [Record("acme.nl", t0, [["field", "cta.fax"], ["value", "1"], ["says", "no"]])]),
+        read("competitor", "wanted", "", "", "", [Record("acme.nl", t0, [["field", "cta.fax"], ["says", "no"]])]),
+    ]) {
+        assert(a.status == 200, a.body);
+        assert(keys(a.body) == readGives, a.body);
+    }
+
+    string[2][] merged, refusal;
+    auto o = observe("competitor", "acme.nl", "cta.phone", "020", rs, merged, refusal);
+    assert(keys(o.body) == observeGives, o.body);
 }
 
 // What a call writes, against a store that keeps what it is asked and has
