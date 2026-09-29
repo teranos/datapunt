@@ -12,3 +12,9 @@ cue() { nix shell --inputs-from "$PWD" nixpkgs#cue -c cue "$@"; }
 # Unquoted on purpose: one path per word.
 cue vet -c ./schema/*.cue $DATAPUNT_SCHEMAS
 cue export ./schema/*.cue $DATAPUNT_SCHEMAS -e export --out json -o .ctfe/schema.json -f
+# The CUE reference the plugin carries: the spec from the source this very cue
+# was built from, and the version it says it is.
+src=$(nix build --inputs-from "$PWD" nixpkgs#cue.src --no-link --print-out-paths)
+cat "$src/doc/ref/spec.md" > .ctfe/cue-spec.md
+set -- $(cue version)
+printf '%s' "$3" > .ctfe/cue-version
