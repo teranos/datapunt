@@ -129,7 +129,25 @@ Answer read(string kind, string by, string name, string field, string prefix, Re
         return answered(kind, rows, observed, declaredHere.length);
     }
 
-    if (field.length > 0) return refused("invalid", "field", "a field is read of one subject: name one");
+    // A field of no one subject: its value for every subject, as a column.
+    if (field.length > 0) {
+        if (by.length > 0 || prefix.length > 0)
+            return refused("invalid", by.length > 0 ? "by" : "prefix", "by and prefix are for a whole kind, and a field was named");
+        auto f = declared(kind, field);
+        if (f is null) return refused("not one of", "field", "no such field for " ~ kind ~ ": " ~ field);
+        import std.algorithm : sort;
+        auto names = held.keys;
+        names.sort();
+        string[] rows;
+        size_t observed;
+        foreach (s; names) {
+            auto v = attribute(held[s], field);
+            if (v !is null) observed++;
+            rows ~= `{"subject":` ~ q(s) ~ `,"observed":` ~ (v is null ? "false" : "true") ~
+                `,"value":` ~ (v is null ? "null" : q(v)) ~ `}`;
+        }
+        return answered(kind, rows, observed, names.length);
+    }
 
     if (by == "refused") return refusals(kind, prefix, kindRecords);
     if (by == "wanted") return wants(kind, prefix, kindRecords);
@@ -385,6 +403,15 @@ unittest {
     // A field the schema does not declare is refused by name.
     auto nosuch = read("competitor", "", "acme.nl", "cta.fax", "", rs);
     assert(nosuch.status == 400 && nosuch.body == `{"why":"not one of","param":"field","says":"no such field for competitor: cta.fax"}`);
+
+    // A field of no one subject is its value for every subject, sorted by name.
+    auto column = read("competitor", "", "", "cta.form", "", rs);
+    assert(column.body == `{"kind":"competitor","rows":[` ~
+        `{"subject":"acme.nl","observed":true,"value":"false"},` ~
+        `{"subject":"beta.nl","observed":false,"value":null}` ~
+        `],"observed":1,"of":2,"refused":null,"standing":null,"wanted":null}`);
+    assert(read("competitor", "", "", "cta.fax", "", rs).body == `{"why":"not one of","param":"field","says":"no such field for competitor: cta.fax"}`);
+    assert(read("competitor", "subject", "", "cta.form", "", rs).body == `{"why":"invalid","param":"by","says":"by and prefix are for a whole kind, and a field was named"}`);
 
     // A whole kind needs by.
     assert(read("competitor", "", "", "", "", rs).body == `{"why":"missing","param":"by","says":"read of a whole kind needs by: subject, field, refused or wanted"}`);
