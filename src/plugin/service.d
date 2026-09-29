@@ -17,7 +17,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.3-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.4-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -104,17 +104,17 @@ Signum signum() {
     s.name = PLUGIN_NAME;
     s.sigils = [
         Sigil("read",
-            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name no subject and say by subject or by field for coverage across the kind, by refused for what the schema would not hold, or by wanted for what was asked of it that it does not hold. Asking one subject for a field the schema does not hold is refused, and the question is written down.",
+            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name a field and no subject for its value of every subject; name neither and say by subject or by field for coverage across the kind, by refused for what the schema would not hold, or by wanted for what was asked of it that it does not hold. Asking one subject for a field the schema does not hold is refused, and the question is written down.",
             [
                 kind,
                 Param("by", "For a whole kind: coverage per subject, or per field, fullest first; the refusals, per field and value, most refused first; or the fields asked for that the schema does not hold, most wanted first.", false, ["subject", "field", "refused", "wanted"]),
                 Param("name", "One subject, by its name."),
-                Param("field", "One field of that subject, by its dotted path.", false, fieldPaths()),
+                Param("field", "One field, by its dotted path: of that subject, or of every subject when none is named.", false, fieldPaths()),
                 Param("prefix", "With by field, refused or wanted: one subtree, as the schema nests it."),
             ],
             [
                 Field("kind", "The kind that was read."),
-                Field("rows", "One row per subject, per field, or the one value, as asked."),
+                Field("rows", "One row per subject, per field, or the one value, as asked. A field of every subject is one row per subject with its value."),
                 Field("observed", "How many of the cells asked about are observed."),
                 Field("of", "How many cells were asked about."),
                 Field("refused", "By refused: how many refusals were read."),
