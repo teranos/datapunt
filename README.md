@@ -1,25 +1,22 @@
 # datapunt
 
-A schema compiled into a QNTX plugin. What a subject of a kind may carry is
+A schema compiled into a QNTX plugin. What a subject may carry is
 declared once, in CUE, and the binary refuses anything else; the observations
 live in QNTX, one namespace per company, and the node hands each call the
 store of the caller's namespace without naming it (QNTX ADR-038).
 
 This repo is the core: the plugin, `schema/datapunt.cue` with the definitions
-and the idiom, and no kind of its own. A company keeps its kinds in its own
-repo as one CUE file in package `datapunt`, and the build that unifies the
-core with every company's file and releases the plugin is QNTX's
-`plugin-datapunt` workflow, called by the deployment that runs the node.
+and the idiom. Other repos add fields to `schema` in
+their own files of package `datapunt`, and `wind` unifies those files.
 
 `wind` is the check and the export: `DATAPUNT_SCHEMAS` names the company
 files, and `dub build --config=plugin` runs it first.
 
-The core tests itself against `testdata/competitor.cue`, a fixture kind that
-datapunt does not ship:
+The core tests itself against `testdata/competitor.cue`, a test fixture:
 
     DATAPUNT_SCHEMAS=testdata/competitor.cue dub test --config=plugin
 
-CI runs that and the CLI's tests, vets the core with no kind at all, and
+CI runs that and the CLI's tests, vets the core alone, and
 builds both configurations. `.github/workflows/test.yml` is emitted from
 `ci/test.nix`, never edited by hand, and CI fails when the two differ.
 
