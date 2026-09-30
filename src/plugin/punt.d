@@ -69,17 +69,6 @@ string[] kindNames() {
     return names;
 }
 
-/// Every declared path, across kinds, once each: what a field may be named.
-string[] fieldPaths() {
-    string[] paths;
-    foreach (f; fields) {
-        bool seen;
-        foreach (p; paths) if (p == f.path) { seen = true; break; }
-        if (!seen) paths ~= f.path;
-    }
-    return paths;
-}
-
 private const(Field)[] declaredFor(string kind) {
     const(Field)[] out_;
     foreach (ref f; fields) if (f.kind == kind) out_ ~= f;

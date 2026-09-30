@@ -18,7 +18,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.5-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.6-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -110,7 +110,7 @@ Signum signum() {
                 kind,
                 Param("by", "For a whole kind: coverage per subject, or per field, fullest first; the refusals, per field and value, most refused first; or the fields asked for that the schema does not hold, most wanted first.", false, ["subject", "field", "refused", "wanted"]),
                 Param("name", "One subject, by its name."),
-                Param("field", "One field, by its dotted path: of that subject, or of every subject when none is named.", false, fieldPaths()),
+                Param("field", "One field, by its dotted path: of that subject, or of every subject when none is named."),
                 Param("prefix", "With by field, refused or wanted: one subtree, as the schema nests it."),
             ],
             [
@@ -128,7 +128,7 @@ Signum signum() {
             [
                 kind,
                 Param("name", "The subject, by its name.", true),
-                Param("field", "The field, by its dotted path.", true, fieldPaths()),
+                Param("field", "The field, by its dotted path.", true),
                 Param("value", "What was seen, as text.", true),
             ],
             [
