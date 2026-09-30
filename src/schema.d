@@ -10,7 +10,6 @@ struct Field {
     string kind;
     string path;
     string type;
-    string question;
     string[] values;
 }
 
@@ -112,7 +111,6 @@ private Field field(ref Cursor c) {
         if (key == "path") f.path = str(c);
         else if (key == "kind") f.kind = str(c);
         else if (key == "type") f.type = str(c);
-        else if (key == "question") { ws(c); if (c.i < c.s.length && c.s[c.i] == '"') f.question = str(c); else skip(c); }
         else if (key == "values") f.values = strList(c);
         else skip(c);
     }

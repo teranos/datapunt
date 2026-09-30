@@ -1,8 +1,6 @@
 // What a subject of each kind may carry, and nothing else.
 //
-// `type` is observed from the subjects themselves, not chosen. `question` is
-// the decision the field serves, and is null until someone writes it. A field
-// that cannot name one is a field to delete rather than to fill.
+// `type` is observed from the subjects themselves, not chosen.
 //
 // One schema for every company. The node hands each call a store token that
 // reaches the caller's namespace and names it to nobody (QNTX ADR-038), so
@@ -15,14 +13,12 @@ package datapunt
 // absentOrString is the schema's own idiom: `false` for confirmed absent, a
 // string for the value when it is there. null stays distinct from both.
 #Plain: {
-	type:     "bool" | "string" | "absentOrString" | "list" | "absentOrList" | "listOfMaps"
-	question: string | *null
+	type: "bool" | "string" | "absentOrString" | "list" | "absentOrList" | "listOfMaps"
 }
 
 #Enum: {
 	type: "enum"
 	values: [string, ...string]
-	question: string | *null
 }
 
 #Field: #Plain | #Enum
@@ -57,10 +53,9 @@ al: #Plain & {type: "absentOrList"}
 // What the compiler reads: every field as the kind it belongs to and the
 // dotted path a query uses, and every kind with its identity.
 #Row: {
-	kind:     string
-	path:     string
-	type:     string
-	question: string | null
+	kind: string
+	path: string
+	type: string
 	values?: [...string]
 }
 
@@ -68,11 +63,10 @@ al: #Plain & {type: "absentOrList"}
 	k:    string
 	path: string
 	v:    #Field
-	out:  #Row & {
-		kind:     k
-		"path":   path
-		type:     v.type
-		question: v.question
+	out: #Row & {
+		kind:   k
+		"path": path
+		type:   v.type
 		if v.type == "enum" {
 			values: v.values
 		}

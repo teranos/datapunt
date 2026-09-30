@@ -15,7 +15,7 @@ schema: competitor: {
 			whatsapp: a
 		}
 		login: {
-			present:  b & {question: "Is a customer account system table stakes, or would building one differentiate us?"}
+			present: b
 			audience: #Enum & {values: ["customer", "staff", "unclear"]}
 		}
 	}

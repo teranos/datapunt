@@ -153,8 +153,7 @@ private int observe(string kind, string name, string path, string value, string[
 int main(string[] argv) {
     if (argv.length == 2 && argv[1] == "schema") {
         foreach (f; fields) {
-            writefln("%-12s %-38s %-15s %s", f.kind, f.path, f.type,
-                f.question is null ? "" : f.question);
+            writefln("%-12s %-38s %s", f.kind, f.path, f.type);
         }
         writefln("%s fields across %s kinds", fields.length, kinds.length);
         return 0;
