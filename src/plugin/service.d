@@ -10,6 +10,7 @@ import plugin.proto;
 import plugin.log;
 import plugin.ats : Store, readKind, write;
 import plugin.punt;
+import plugin.cueref : cue, CUE_VERSION;
 
 enum PLUGIN_NAME = "datapunt";
 
@@ -17,7 +18,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.4-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.5-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -137,6 +138,17 @@ Signum signum() {
                 Field("value", "The value written."),
             ],
             Endpoint("POST", "/api/datapunt/observe")),
+        Sigil("cue",
+            "The CUE language reference, from the source of the cue the schema was checked with: " ~ CUE_VERSION ~
+            ". Name no section for every heading; name one for its text.",
+            [
+                Param("section", "A heading of the spec, exactly as the headings are listed. The spec repeats some; each is given."),
+            ],
+            [
+                Field("version", "The cue the schema was checked with, whose spec this is."),
+                Field("rows", "One row per heading, its level and title; or, a section named, each section by that title with its text, up to the next heading of the same or a higher level."),
+            ],
+            Endpoint("GET", "/api/datapunt/cue")),
     ];
     return s;
 }
@@ -146,6 +158,9 @@ Answer handleHTTP(ref const HTTPRequest req) {
     string path = req.path;
     string query;
     foreach (i, c; path) if (c == '?') { query = path[i + 1 .. $]; path = path[0 .. i]; break; }
+
+    // The reference is compiled in and reaches no store.
+    if (req.method == "GET" && path == "/cue") return cue(parseQuery(query).get("section", ""));
 
     Store call;
     if (auto why = callStore(req, call)) return failed(why);
@@ -324,7 +339,8 @@ unittest {
 
     // The signum names every kind and every field it takes.
     auto s = signum();
-    assert(s.name == "datapunt" && s.sigils.length == 2);
+    assert(s.name == "datapunt" && s.sigils.length == 3);
+    assert(s.sigils[2].http.path == "/api/datapunt/cue");
     import std.algorithm : canFind;
     assert(s.sigils[0].takes[0].oneOf.canFind("competitor"));
     assert(s.sigils[1].http.path == "/api/datapunt/observe");
@@ -397,6 +413,18 @@ unittest {
     string[2][] merged, refusal;
     auto o = observe("competitor", "acme.nl", "cta.phone", "020", rs, merged, refusal);
     assert(keys(o.body) == observeGives, o.body);
+
+    // The reference answers what cue says it gives, with or without a section,
+    // and needs no store token.
+    auto cueGives = names(s.sigils[2].gives);
+    HTTPRequest r;
+    r.method = "GET";
+    r.path = "/cue";
+    auto index = handleHTTP(r);
+    assert(index.status == 200 && keys(index.body) == cueGives, index.body);
+    r.path = "/cue?section=Introduction";
+    auto one = handleHTTP(r);
+    assert(one.status == 200 && keys(one.body) == cueGives, one.body);
 }
 
 // What a call writes, against a store that keeps what it is asked and has

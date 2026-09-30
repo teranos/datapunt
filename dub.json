@@ -5,7 +5,7 @@
     "sourcePaths": ["src"],
     "stringImportPaths": ["."],
     "dflags": ["--lowmem"],
-    "extraDependencyFiles": [".ctfe/schema.json"],
+    "extraDependencyFiles": [".ctfe/schema.json", ".ctfe/cue-spec.md", ".ctfe/cue-version"],
     "preBuildCommands": ["./wind"],
     "configurations": [
         {
