@@ -22,11 +22,6 @@ hand, and CI fails when the two differ.
 
 ## Decided
 
-2026-10-01:
-
-"Im only interested in Datapunt as the Plugin"
-
-
 Brandon, 2026-09-23, on why the schema moves from Nix to CUE:
 
 "the reason for CUE is that i want to use datapunt for multiple namespaces
