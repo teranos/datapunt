@@ -1,10 +1,10 @@
-/// What datapunt answers, as the command line did, over records already read.
-/// Nothing here reaches the store: main.d reads, this decides, main.d writes.
+/// What datapunt answers, over records already read.
+/// Nothing here reaches the store: service.d reads, this decides, service.d writes.
 module plugin.punt;
 
 import schema : fields, kinds, Field;
 
-/// What kind of statement an observation is (as node.d writes it).
+/// What kind of statement an observation is.
 enum OBSERVED = "datapunt:observed";
 
 /// A value seen in the world that the schema could not hold. It is written
@@ -16,7 +16,7 @@ enum REFUSED = "datapunt:refused";
 /// looking for a field. Written down, like a refusal, where the caller acts.
 enum WANTED = "datapunt:wanted";
 
-/// records.d's SINCE, 2026-09-12T16:00:00Z, in Unix milliseconds. Older
+/// 2026-09-12T16:00:00Z, in Unix milliseconds. Older
 /// attestations were written in a shape this does not read.
 enum long SINCE_MS = 1_789_228_800_000;
 
@@ -372,7 +372,7 @@ unittest {
     enum t0 = SINCE_MS + 1000;
     Record[] rs = [
         Record("acme.nl", t0, [["url", "https://acme.nl"], ["cta.form", "true"]]),
-        Record("acme.nl", t0 + 1, [["url", "https://acme.nl"], ["cta.form", "false"], ["jsonl.file", "/x"]]),
+        Record("acme.nl", t0 + 1, [["url", "https://acme.nl"], ["cta.form", "false"], ["cta.fax", "020 999"]]),
         Record("beta.nl", t0, [["url", "https://beta.nl"]]),
         Record("old.nl", SINCE_MS - 1, [["url", "https://old.nl"]]),
     ];

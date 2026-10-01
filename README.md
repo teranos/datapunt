@@ -16,25 +16,9 @@ The core tests itself against `testdata/competitor.cue`, a test fixture:
 
     DATAPUNT_SCHEMAS=testdata/competitor.cue dub test --config=plugin
 
-CI runs that and the CLI's tests, vets the core alone, and
-builds both configurations. `.github/workflows/test.yml` is emitted from
-`ci/test.nix`, never edited by hand, and CI fails when the two differ.
-
-## Trying it against a real node
-
-`datapunt:test` is the predicate for trying datapunt out against a real node:
-observations about subjects that are not real, written where a real namespace
-can hold them without anyone reading them as findings. With `DATAPUNT_TEST=1`
-the CLI reads and writes `datapunt:test` instead of `datapunt:observed`, and
-every read names its predicate, so neither lane sees the other:
-
-    DATAPUNT_SCHEMAS=testdata/competitor.cue dub build --config=cli
-    DATAPUNT_TEST=1 ./datapunt competitor datapunt-test.example cta.phone "020 000 0000"
-    DATAPUNT_TEST=1 ./datapunt competitor
-
-Name a subject that is plainly not real, such as `datapunt-test.example`: a
-build from before reads named their predicate reads every predicate, and would
-take a test statement about a real subject as that subject's newest record.
+CI runs that, vets the core alone, and builds the plugin.
+`.github/workflows/test.yml` is emitted from `ci/test.nix`, never edited by
+hand, and CI fails when the two differ.
 
 ## Decided
 

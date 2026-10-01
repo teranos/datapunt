@@ -9,17 +9,10 @@
     "preBuildCommands": ["./wind"],
     "configurations": [
         {
-            "name": "cli",
-            "targetName": "datapunt",
-            "mainSourceFile": "src/app.d",
-            "excludedSourceFiles": ["src/plugin/*"]
-        },
-        {
             "name": "plugin",
             "targetName": "qntx-datapunt-plugin",
             "targetPath": "bin",
-            "mainSourceFile": "src/plugin/entry.d",
-            "excludedSourceFiles": ["src/app.d", "src/node.d", "src/jsonl.d", "src/records.d"]
+            "mainSourceFile": "src/plugin/entry.d"
         }
     ]
 }

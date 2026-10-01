@@ -1,8 +1,4 @@
-# The binaries, the schema cue writes for the compiler, and the token, which is
-# a secret.
-/datapunt
-/datapunt-test-*
+# The binaries and the schema cue writes for the compiler.
 /bin/
-/.token
 /.ctfe/
 /.dub/
