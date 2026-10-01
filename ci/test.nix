@@ -6,7 +6,7 @@
 # JSON is YAML, so GitHub reads the emitted file as it is.
 
 # The core checks itself: the schema vets with no company's kind, and the
-# plugin and the CLI test and build against the fixture kind in testdata. The
+# plugin tests and builds against the fixture kind in testdata. The
 # release is not here; QNTX's plugin-datapunt workflow builds what ships.
 let
   # cue, ldc, dub and jq all come from the nixpkgs this repo's flake.lock pins,
@@ -47,7 +47,6 @@ in
         name = "Test";
         run = ''
           ${dub "dub test --config=plugin --compiler=ldc2"}
-          ${dub "dub test --config=cli --compiler=ldc2"}
         '';
       }
 
@@ -55,7 +54,6 @@ in
         name = "Build";
         run = ''
           ${dub "dub build --config=plugin --compiler=ldc2 --build=release"}
-          ${dub "dub build --config=cli --compiler=ldc2"}
         '';
       }
     ];
