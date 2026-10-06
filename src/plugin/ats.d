@@ -53,6 +53,7 @@ Record toRecord(ref const Attestation as) {
     Record r;
     if (as.subjects.length > 0) r.subject = as.subjects[0];
     r.timestamp = as.timestamp;
+    r.actors = as.actors.dup;
     foreach (ref entry; as.attributes.fields) r.attributes ~= [entry.key, text(entry.value)];
     return r;
 }

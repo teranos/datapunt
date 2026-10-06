@@ -24,6 +24,7 @@ struct Record {
     string subject;
     long timestamp; // Unix milliseconds
     string[2][] attributes;
+    string[] actors; // who the store says made it: datapunt, and whoever asked
 }
 
 /// An HTTP status and a JSON body, which is all HandleHTTP hands back.
@@ -89,7 +90,8 @@ private bool under(string path, string prefix) {
 
 /// Every read answers kind, rows, and how many of the cells it is about are
 /// observed, out of how many.
-Answer read(string kind, string by, string name, string field, string prefix, Record[] kindRecords) {
+Answer read(string kind, string by, string name, string field, string prefix, Record[] kindRecords,
+        Record[] refusedRecords = null, Record[] wantedRecords = null) {
     if (!knownKind(kind)) return refused("not one of", "kind", "no such kind in the schema: " ~ kind);
     auto held = newestBySubject(kindRecords);
     auto declaredHere = declaredFor(kind);
@@ -138,6 +140,10 @@ Answer read(string kind, string by, string name, string field, string prefix, Re
         return answered(kind, rows, observed, names.length);
     }
 
+    if (by == "token") {
+        if (prefix.length > 0) return refused("invalid", "prefix", "prefix is for by field, refused or wanted");
+        return byToken(kind, kindRecords, refusedRecords, wantedRecords);
+    }
     if (by == "refused") return refusals(kind, prefix, kindRecords);
     if (by == "wanted") return wants(kind, prefix, kindRecords);
 
@@ -181,7 +187,121 @@ Answer read(string kind, string by, string name, string field, string prefix, Re
         return answered(kind, rows, observed, counted.length * held.length);
     }
 
-    return refused("missing", "by", "read of a whole kind needs by: subject, field, refused or wanted");
+    return refused("missing", "by", "read of a whole kind needs by: subject, field, token, refused or wanted");
+}
+
+// ---------------------------------------------------------------------------
+// token: who observed, by the token they asked with
+// ---------------------------------------------------------------------------
+
+// "I WANT TO BE ABLE TO SAY AND SEE EASILY WHO ATTESTED WHAT USING DATAPUNT"
+// "THIS IS WHAT I WANT, PER TOKEN"
+
+/// Which token an observation was asked for with, and the OAuth client that
+/// token was issued through.
+struct Provenance {
+    string token;
+    string client;
+}
+
+/// Read off the actors as actorsOf writes them: datapunt, then the token's
+/// name, its DID, its client's DID and the person. Before 0.3.5 the node wrote
+/// the token's DID ahead of datapunt, and the name still follows datapunt. A
+/// name stands only beside a DID: a person signed in has neither, and the
+/// first actor after datapunt is then the person.
+Provenance provenanceOf(const string[] actors) {
+    import std.algorithm : startsWith, countUntil;
+    auto at = actors.countUntil(PLUGIN);
+    const(string)[] after = at < 0 ? actors : actors[at + 1 .. $];
+    string did;
+    foreach (a; actors) if (a.startsWith("did:")) { did = a; break; }
+    if (did.length == 0) return Provenance(NO_TOKEN, "");
+    if (after.length == 0 || after[0].startsWith("did:")) return Provenance(UNNAMED ~ did, "");
+    string client;
+    if (after.length >= 3 && after[1].startsWith("did:") && after[2].startsWith("did:")) client = after[2];
+    return Provenance(after[0], client);
+}
+
+private enum PLUGIN = "datapunt";
+/// What a person signed in observed, with no token between.
+enum NO_TOKEN = "no token";
+/// A token whose DID is known and whose name was not said.
+enum UNNAMED = "unnamed ";
+/// How long one count of a token's days is: a day in UTC.
+enum long DAY_MS = 86_400_000;
+
+// "IT CAN MISATTEST AS WELL AND THAT IS ALSO SIGNAL"
+
+/// Every observation of a kind, per token, in the order each first observed:
+/// how many, of how many subjects, when first and last, how many on each day
+/// anything was observed on, and how often the schema refused it or it asked
+/// for a field the schema does not hold. A token that only misattested is a
+/// row of its own, with nothing observed.
+private Answer byToken(string kind, Record[] records, Record[] refusals, Record[] questions) {
+    import std.algorithm : sort, SwapStrategy;
+    auto all = records.dup;
+    all.sort!((a, b) => a.timestamp < b.timestamp, SwapStrategy.stable);
+
+    struct Row {
+        Provenance p;
+        size_t n;
+        bool[string] subjects;
+        long first, last;
+        long[] days;
+        size_t[] counts;
+        size_t refused, wanted;
+    }
+    Row[] rows;
+    size_t total;
+    Row* rowOf(Provenance p) {
+        foreach (ref x; rows) if (x.p.token == p.token) return &x;
+        rows ~= Row(p);
+        return &rows[$ - 1];
+    }
+    foreach (ref r; all) {
+        if (r.timestamp < SINCE_MS) continue;
+        auto p = provenanceOf(r.actors);
+        Row* row = rowOf(p);
+        if (row.n == 0) row.first = r.timestamp;
+        // A token's client is said once it is known.
+        if (row.p.client.length == 0) row.p.client = p.client;
+        row.n++;
+        total++;
+        row.subjects[r.subject] = true;
+        row.last = r.timestamp;
+        immutable day = r.timestamp - r.timestamp % DAY_MS;
+        if (row.days.length == 0 || row.days[$ - 1] != day) { row.days ~= day; row.counts ~= 0; }
+        row.counts[$ - 1]++;
+    }
+    foreach (ref r; refusals) {
+        if (r.timestamp < SINCE_MS) continue;
+        auto p = provenanceOf(r.actors);
+        auto row = rowOf(p);
+        if (row.p.client.length == 0) row.p.client = p.client;
+        row.refused++;
+    }
+    foreach (ref r; questions) {
+        if (r.timestamp < SINCE_MS) continue;
+        auto p = provenanceOf(r.actors);
+        auto row = rowOf(p);
+        if (row.p.client.length == 0) row.p.client = p.client;
+        row.wanted++;
+    }
+
+    size_t refusedTotal, wantedTotal;
+    string body = `{"kind":` ~ q(kind) ~ `,"rows":[`;
+    foreach (i, ref x; rows) {
+        string days;
+        foreach (j, d; x.days) days ~= (j ? "," : "") ~ "[" ~ num(d) ~ "," ~ num(x.counts[j]) ~ "]";
+        body ~= (i ? "," : "") ~ `{"token":` ~ q(x.p.token) ~ `,"client":` ~ (x.p.client.length ? q(x.p.client) : "null") ~
+            `,"observed":` ~ num(x.n) ~ `,"subjects":` ~ num(x.subjects.length) ~
+            `,"first":` ~ (x.n ? num(x.first) : "null") ~ `,"last":` ~ (x.n ? num(x.last) : "null") ~ `,"days":[` ~ days ~ `]` ~
+            `,"refused":` ~ num(x.refused) ~ `,"wanted":` ~ num(x.wanted) ~ `}`;
+        refusedTotal += x.refused;
+        wantedTotal += x.wanted;
+    }
+    return Answer(200, body ~ `],"observed":` ~ num(total) ~ `,"of":null,"refused":` ~ num(refusedTotal) ~
+        `,"standing":null,"wanted":` ~ num(wantedTotal) ~ `}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +322,8 @@ private Answer refusals(string kind, string prefix, Record[] refusedRecords) {
         if (stands) standing++;
         body ~= (i ? "," : "") ~ `{"field":` ~ q(x.field) ~ `,"value":` ~ q(x.value) ~
             `,"says":` ~ q(x.says) ~ `,"times":` ~ num(x.times) ~
-            `,"subjects":` ~ num(x.subjects.length) ~ `,"last":` ~ num(x.last) ~ `,"stands":` ~ (stands ? "true" : "false") ~ `}`;
+            `,"subjects":` ~ num(x.subjects.length) ~ `,"last":` ~ num(x.last) ~ `,"stands":` ~ (stands ? "true" : "false") ~
+            `,"tokens":` ~ names(x.tokens) ~ `}`;
     }
     return Answer(200, body ~ `],"observed":null,"of":null,"refused":` ~ num(total) ~ `,"standing":` ~ num(standing) ~ `,"wanted":null}`);
 }
@@ -218,7 +339,8 @@ private Answer wants(string kind, string prefix, Record[] wantedRecords) {
         immutable stands = declared(kind, x.field) is null;
         if (stands) standing++;
         body ~= (i ? "," : "") ~ `{"field":` ~ q(x.field) ~ `,"says":` ~ q(x.says) ~ `,"times":` ~ num(x.times) ~
-            `,"subjects":` ~ num(x.subjects.length) ~ `,"last":` ~ num(x.last) ~ `,"stands":` ~ (stands ? "true" : "false") ~ `}`;
+            `,"subjects":` ~ num(x.subjects.length) ~ `,"last":` ~ num(x.last) ~ `,"stands":` ~ (stands ? "true" : "false") ~
+            `,"tokens":` ~ names(x.tokens) ~ `}`;
     }
     return Answer(200, body ~ `],"observed":null,"of":null,"refused":null,"standing":` ~ num(standing) ~ `,"wanted":` ~ num(total) ~ `}`);
 }
@@ -241,6 +363,15 @@ private struct Tally {
     size_t times;
     string[] subjects;
     long last;
+    // Who misattested it, by the token they asked with, first first.
+    string[] tokens;
+}
+
+/// The token names, as JSON.
+private string names(const string[] tokens) {
+    string out_ = "[";
+    foreach (i, t; tokens) out_ ~= (i ? "," : "") ~ q(t);
+    return out_ ~ "]";
 }
 
 /// Gathers records under a prefix into one tally per field, or per field and
@@ -259,6 +390,10 @@ private Tally[] tally(Record[] records, string prefix, bool byValue, out size_t 
         bool seen;
         foreach (s; row.subjects) if (s == r.subject) { seen = true; break; }
         if (!seen) row.subjects ~= r.subject;
+        immutable token = provenanceOf(r.actors).token;
+        bool told;
+        foreach (t; row.tokens) if (t == token) { told = true; break; }
+        if (!told) row.tokens ~= token;
         if (r.timestamp >= row.last) { row.last = r.timestamp; row.says = attribute(r, "says"); }
     }
     import std.algorithm : sort, SwapStrategy;
@@ -403,7 +538,7 @@ unittest {
     assert(read("competitor", "subject", "", "cta.form", "", rs).body == `{"why":"invalid","param":"by","says":"by and prefix are for a whole kind, and a field was named"}`);
 
     // A whole kind needs by.
-    assert(read("competitor", "", "", "", "", rs).body == `{"why":"missing","param":"by","says":"read of a whole kind needs by: subject, field, refused or wanted"}`);
+    assert(read("competitor", "", "", "", "", rs).body == `{"why":"missing","param":"by","says":"read of a whole kind needs by: subject, field, token, refused or wanted"}`);
 
     // By subject counts per subject; by field counts per field, one subtree.
     auto bySubject = read("competitor", "subject", "", "", "", rs);
@@ -448,22 +583,77 @@ unittest {
     auto empty = read("competitor", "refused", "", "", "login",
         [Record("acme.nl", t0, [["field", "login.audience"], ["value", null], ["says", "empty"]])]);
     assert(empty.body == `{"kind":"competitor","rows":[{"field":"login.audience","value":"","says":"empty","times":1,"subjects":1,"last":` ~
-        num(t0) ~ `,"stands":true}],"observed":null,"of":null,"refused":1,"standing":1,"wanted":null}`);
+        num(t0) ~ `,"stands":true,"tokens":["no token"]}],"observed":null,"of":null,"refused":1,"standing":1,"wanted":null}`);
     auto byRefused = read("competitor", "refused", "", "", "", refusals_);
     assert(byRefused.status == 200);
     assert(byRefused.body == `{"kind":"competitor","rows":[` ~
-        `{"field":"login.audience","value":"everyone","says":"new","times":2,"subjects":2,"last":` ~ num(t0 + 2) ~ `,"stands":true},` ~
-        `{"field":"cta.fax","value":"020 999","says":"no fax","times":1,"subjects":1,"last":` ~ num(t0 + 1) ~ `,"stands":true},` ~
-        `{"field":"cta.form","value":"yes","says":"once","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false}` ~
+        `{"field":"login.audience","value":"everyone","says":"new","times":2,"subjects":2,"last":` ~ num(t0 + 2) ~ `,"stands":true,"tokens":["no token"]},` ~
+        `{"field":"cta.fax","value":"020 999","says":"no fax","times":1,"subjects":1,"last":` ~ num(t0 + 1) ~ `,"stands":true,"tokens":["no token"]},` ~
+        `{"field":"cta.form","value":"yes","says":"once","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false,"tokens":["no token"]}` ~
         `],"observed":null,"of":null,"refused":4,"standing":2,"wanted":null}`);
     auto ctaRefused = read("competitor", "refused", "", "", "cta", refusals_);
     assert(ctaRefused.body == `{"kind":"competitor","rows":[` ~
-        `{"field":"cta.fax","value":"020 999","says":"no fax","times":1,"subjects":1,"last":` ~ num(t0 + 1) ~ `,"stands":true},` ~
-        `{"field":"cta.form","value":"yes","says":"once","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false}` ~
+        `{"field":"cta.fax","value":"020 999","says":"no fax","times":1,"subjects":1,"last":` ~ num(t0 + 1) ~ `,"stands":true,"tokens":["no token"]},` ~
+        `{"field":"cta.form","value":"yes","says":"once","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false,"tokens":["no token"]}` ~
         `],"observed":null,"of":null,"refused":2,"standing":1,"wanted":null}`);
     assert(read("competitor", "refused", "", "", "", []).body == `{"kind":"competitor","rows":[],"observed":null,"of":null,"refused":0,"standing":0,"wanted":null}`);
 
     assert(q("a\"b\\c\nd\x01") == `"a\"b\\c\nd\u0001"`);
+}
+
+// Who observed: the token each observation was asked with, as the store holds
+// the actors that wrote it.
+unittest {
+    // A connector's token: its name, its DID, its client, and the person.
+    assert(provenanceOf(["datapunt", "ManusClean", "did:key:ztoken", "did:key:zclient", "apple:001"]) ==
+        Provenance("ManusClean", "did:key:zclient"));
+    // A token with no client.
+    assert(provenanceOf(["datapunt", "a-script", "did:key:z6", "https://id"]) == Provenance("a-script", ""));
+    // Before 0.3.5: the token's DID ahead of datapunt, its name after.
+    assert(provenanceOf(["did:key:zcc", "datapunt", "claude-code_2-1-273_agent", "remote_mobile:e3"]) ==
+        Provenance("claude-code_2-1-273_agent", ""));
+    // A DID and no name.
+    assert(provenanceOf(["datapunt", "did:key:zbare"]) == Provenance("unnamed did:key:zbare", ""));
+    // A person signed in, with no token.
+    assert(provenanceOf(["datapunt", "apple:001"]) == Provenance("no token", ""));
+    assert(provenanceOf(["datapunt"]) == Provenance("no token", ""));
+
+    // Counted per UTC day: the same day twice is one count of two, the next day another.
+    enum t0 = SINCE_MS - SINCE_MS % DAY_MS + DAY_MS;
+    Record[] rs = [
+        Record("b.nl", t0 + DAY_MS, [["url", "b"]], ["datapunt", "ManusClean", "did:key:zt", "did:key:zc", "apple:1"]),
+        Record("a.nl", t0, [["url", "a"]], ["datapunt", "apple:1"]),
+        Record("a.nl", t0 + DAY_MS - 1, [["url", "a"]], ["datapunt", "apple:1"]),
+        Record("c.nl", t0 + 2 * DAY_MS + 5, [["url", "c"]], ["datapunt", "ManusClean", "did:key:zt", "did:key:zc", "apple:1"]),
+        Record("old.nl", SINCE_MS - 1, [["url", "o"]], ["datapunt", "apple:1"]),
+    ];
+    // What the schema refused and what was asked of it, by who misattested it.
+    // A token that only misattested is a row with nothing observed.
+    Record[] refusals = [
+        Record("b.nl", t0 + DAY_MS + 1, [["field", "cta.fax"], ["value", "1"], ["says", "no fax"]], ["datapunt", "ManusClean", "did:key:zt", "did:key:zc", "apple:1"]),
+        Record("x.nl", t0 + 7, [["field", "cta.fax"], ["value", "2"], ["says", "no fax"]], ["datapunt", "claude.ai-default", "did:key:zd", "did:key:ze", "apple:1"]),
+    ];
+    Record[] questions = [
+        Record("b.nl", t0 + DAY_MS + 2, [["field", "cta.fax"]], ["datapunt", "ManusClean", "did:key:zt", "did:key:zc", "apple:1"]),
+    ];
+    assert(read("competitor", "token", "", "", "", rs, refusals, questions).body == `{"kind":"competitor","rows":[` ~
+        `{"token":"no token","client":null,"observed":2,"subjects":1,"first":` ~ num(t0) ~ `,"last":` ~ num(t0 + DAY_MS - 1) ~
+            `,"days":[[` ~ num(t0) ~ `,2]],"refused":0,"wanted":0},` ~
+        `{"token":"ManusClean","client":"did:key:zc","observed":2,"subjects":2,"first":` ~ num(t0 + DAY_MS) ~
+            `,"last":` ~ num(t0 + 2 * DAY_MS + 5) ~ `,"days":[[` ~ num(t0 + DAY_MS) ~ `,1],[` ~ num(t0 + 2 * DAY_MS) ~ `,1]]` ~
+            `,"refused":1,"wanted":1},` ~
+        `{"token":"claude.ai-default","client":"did:key:ze","observed":0,"subjects":0,"first":null,"last":null,"days":[]` ~
+            `,"refused":1,"wanted":0}` ~
+        `],"observed":4,"of":null,"refused":2,"standing":null,"wanted":1}`);
+    assert(read("competitor", "token", "", "", "cta", rs).status == 400);
+
+    // A refusal names every token that made it, first first.
+    assert(read("competitor", "refused", "", "", "", refusals).body == `{"kind":"competitor","rows":[` ~
+        `{"field":"cta.fax","value":"1","says":"no fax","times":1,"subjects":1,"last":` ~ num(t0 + DAY_MS + 1) ~
+            `,"stands":true,"tokens":["ManusClean"]},` ~
+        `{"field":"cta.fax","value":"2","says":"no fax","times":1,"subjects":1,"last":` ~ num(t0 + 7) ~
+            `,"stands":true,"tokens":["claude.ai-default"]}` ~
+        `],"observed":null,"of":null,"refused":2,"standing":2,"wanted":null}`);
 }
 
 // A read that asks for a field the schema does not hold is a question looking
@@ -494,8 +684,8 @@ unittest {
         Record("old.nl", SINCE_MS - 1, [["field", "cta.fax"], ["says", "old"]]),
     ];
     assert(read("competitor", "wanted", "", "", "", asked).body == `{"kind":"competitor","rows":[` ~
-        `{"field":"cta.fax","says":"b","times":3,"subjects":2,"last":` ~ num(t0 + 2) ~ `,"stands":true},` ~
-        `{"field":"cta.form","says":"d","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false}` ~
+        `{"field":"cta.fax","says":"b","times":3,"subjects":2,"last":` ~ num(t0 + 2) ~ `,"stands":true,"tokens":["no token"]},` ~
+        `{"field":"cta.form","says":"d","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false,"tokens":["no token"]}` ~
         `],"observed":null,"of":null,"refused":null,"standing":1,"wanted":4}`);
     assert(read("competitor", "wanted", "", "", "login", asked).body == `{"kind":"competitor","rows":[],"observed":null,"of":null,"refused":null,"standing":0,"wanted":0}`);
 }

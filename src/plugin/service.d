@@ -18,7 +18,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.7-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.8-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -105,22 +105,22 @@ Signum signum() {
     s.name = PLUGIN_NAME;
     s.sigils = [
         Sigil("read",
-            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name a field and no subject for its value of every subject; name neither and say by subject or by field for coverage across the kind, by refused for what the schema would not hold, or by wanted for what was asked of it that it does not hold. Asking one subject for a field the schema does not hold is refused, and the question is written down.",
+            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name a field and no subject for its value of every subject; name neither and say by subject or by field for coverage across the kind, by token for who observed it, by refused for what the schema would not hold, or by wanted for what was asked of it that it does not hold. Asking one subject for a field the schema does not hold is refused, and the question is written down.",
             [
                 kind,
-                Param("by", "For a whole kind: coverage per subject, or per field, fullest first; the refusals, per field and value, most refused first; or the fields asked for that the schema does not hold, most wanted first.", false, ["subject", "field", "refused", "wanted"]),
+                Param("by", "For a whole kind: coverage per subject, or per field, fullest first; every observation per token it was asked with, and the OAuth client that token was issued through, by the day; the refusals, per field and value, most refused first; or the fields asked for that the schema does not hold, most wanted first.", false, ["subject", "field", "token", "refused", "wanted"]),
                 Param("name", "One subject, by its name."),
                 Param("field", "One field, by its dotted path: of that subject, or of every subject when none is named."),
                 Param("prefix", "With by field, refused or wanted: one subtree, as the schema nests it."),
             ],
             [
                 Field("kind", "The kind that was read."),
-                Field("rows", "One row per subject, per field, or the one value, as asked. A field of every subject is one row per subject with its value."),
-                Field("observed", "How many of the cells asked about are observed."),
+                Field("rows", "One row per subject, per field, or the one value, as asked. A field of every subject is one row per subject with its value. By token, one row per token: its name, its client's DID or null, how many observations of how many subjects, the first and last in Unix milliseconds, days as [UTC day start, count] for every day it observed on, and how often the schema refused it and how often it asked for a field the schema does not hold. By refused or wanted, each row names the tokens that made it."),
+                Field("observed", "How many of the cells asked about are observed. By token, how many observations there are."),
                 Field("of", "How many cells were asked about."),
-                Field("refused", "By refused: how many refusals were read."),
+                Field("refused", "By refused or by token: how many refusals were read."),
                 Field("standing", "By refused or wanted: how many rows the schema as compiled would still refuse."),
-                Field("wanted", "By wanted: how many questions were read."),
+                Field("wanted", "By wanted or by token: how many questions were read."),
             ],
             Endpoint("GET", "/api/datapunt/read")),
         Sigil("observe",
@@ -168,9 +168,14 @@ Answer handleHTTP(ref const HTTPRequest req) {
     if (req.method == "GET" && path == "/read") {
         auto sent = parseQuery(query);
         auto kind = sent.get("kind", ""), name = sent.get("name", ""), field = sent.get("field", "");
-        Record[] records;
+        Record[] records, refusals, questions;
         if (auto why = readKind(call, kind, predicateFor(sent.get("by", "")), records)) return failed(why);
-        auto a = read(kind, sent.get("by", ""), name, field, sent.get("prefix", ""), records);
+        // Who observed is also who misattested: by token reads all three.
+        if (sent.get("by", "") == "token") {
+            if (auto why = readKind(call, kind, REFUSED, refusals)) return failed(why);
+            if (auto why = readKind(call, kind, WANTED, questions)) return failed(why);
+        }
+        auto a = read(kind, sent.get("by", ""), name, field, sent.get("prefix", ""), records, refusals, questions);
         // The caller is answered either way. A question the store would not
         // keep is the node's fault, and the log says what.
         if (auto w = wantedRecord(kind, name, field))
@@ -344,7 +349,7 @@ unittest {
     import std.algorithm : canFind;
     assert(s.sigils[0].takes[0].oneOf.canFind("competitor"));
     assert(s.sigils[1].http.path == "/api/datapunt/observe");
-    assert(s.sigils[0].takes[1].oneOf == ["subject", "field", "refused", "wanted"]);
+    assert(s.sigils[0].takes[1].oneOf == ["subject", "field", "token", "refused", "wanted"]);
 
     // A read goes to the statements its by names.
     assert(predicateFor("") == OBSERVED && predicateFor("subject") == OBSERVED && predicateFor("field") == OBSERVED);
@@ -403,6 +408,7 @@ unittest {
         read("competitor", "subject", "", "", "", rs),
         read("competitor", "", "acme.nl", "", "", rs),
         read("competitor", "", "acme.nl", "cta.form", "", rs),
+        read("competitor", "token", "", "", "", rs),
         read("competitor", "refused", "", "", "", [Record("acme.nl", t0, [["field", "cta.fax"], ["value", "1"], ["says", "no"]])]),
         read("competitor", "wanted", "", "", "", [Record("acme.nl", t0, [["field", "cta.fax"], ["says", "no"]])]),
     ]) {
