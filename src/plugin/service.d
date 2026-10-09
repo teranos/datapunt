@@ -18,7 +18,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.8-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.9-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {

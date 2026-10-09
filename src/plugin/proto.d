@@ -481,6 +481,7 @@ struct AttestationFilter {
     @Proto(2) string[] predicates;
     @Proto(3) string[] contexts;
     @Proto(5) long timeStart; // Unix milliseconds
+    @Proto(7) int limit;      // How many rows, named: a query says it
 }
 
 struct GetAttestationsRequest {

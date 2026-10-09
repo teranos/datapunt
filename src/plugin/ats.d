@@ -10,8 +10,8 @@ struct Store {
     string token;
 }
 
-/// Every statement of one predicate about a kind since SINCE_MS, one call: the
-/// node applies no limit when the filter names none (atsstore.proto). Null is
+/// Every statement of one predicate about a kind since SINCE_MS, one call. A
+/// query names how many rows it wants, and every row is int.max, said. Null is
 /// the records; anything else is why the store did not give them.
 string readKind(Store store, string kind, string predicate, out Record[] records) {
     GetAttestationsRequest req;
@@ -19,6 +19,7 @@ string readKind(Store store, string kind, string predicate, out Record[] records
     req.filter.predicates = [predicate];
     req.filter.contexts = [kind];
     req.filter.timeStart = SINCE_MS;
+    req.filter.limit = int.max;
 
     auto called = grpcCall(store.endpoint, "/protocol.ATSStoreService/GetAttestations", encode(req));
     if (called.error !is null) return called.error;
