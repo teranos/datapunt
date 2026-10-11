@@ -357,6 +357,13 @@ struct InitializeRequest {
 
 struct InitializeResponse {
     @Proto(10) Signum[] signa;
+    @Proto(11) int sigilsFrom; // SigilsFrom: where the node takes the sigils from
+}
+
+enum SIGILS_FROM_SIGNA = 1;
+
+struct ShutdownResponse {
+    @Proto(1) bool stopped;
 }
 
 // ---------------------------------------------------------------------------
@@ -457,6 +464,8 @@ struct Value {
 
 // attributes is google.protobuf.Struct already encoded (ats.encodeStruct): the
 // codec drops an empty string, and an observed empty string is still observed.
+// A node before QNTX #1178 reads actors from 4; one after reads 12, 9 and 11,
+// and drops 4. Both are sent, so either node takes the command as meant.
 struct AttestationCommand {
     @Proto(1) string[] subjects;
     @Proto(2) string[] predicates;
@@ -464,6 +473,13 @@ struct AttestationCommand {
     @Proto(4) string[] actors;
     @Proto(6) ubyte[] attributes;
     @Proto(7) string source;
+    @Proto(9) bool now;                  // when: the node writes it
+    @Proto(11) bool versionFromRegistry; // version: as the node's registry has it
+    @Proto(12) ActorNames actorsNamed;   // by: the actors it names
+}
+
+struct ActorNames {
+    @Proto(1) string[] names;
 }
 
 struct GenerateAttestationRequest {
@@ -482,6 +498,7 @@ struct AttestationFilter {
     @Proto(3) string[] contexts;
     @Proto(5) long timeStart; // Unix milliseconds
     @Proto(7) int limit;      // How many rows, named: a query says it
+    @Proto(9) bool unboundedEnd; // The range has no end
 }
 
 struct GetAttestationsRequest {

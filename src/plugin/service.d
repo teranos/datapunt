@@ -18,7 +18,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.9-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.10-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -63,6 +63,7 @@ void registerHandlers(ref GrpcServer server) {
         logInfo("[datapunt] Initialize: ats=%s token=%dB", req.atsStoreEndpoint, req.authToken.length);
         InitializeResponse resp;
         resp.signa = [signum()];
+        resp.sigilsFrom = SIGILS_FROM_SIGNA;
         return encode(resp);
     });
 
@@ -88,7 +89,7 @@ void registerHandlers(ref GrpcServer server) {
         return encode(resp);
     });
 
-    server.registerHandler("/protocol.DomainPluginService/Shutdown", (const ubyte[] _) => encode(Empty()));
+    server.registerHandler("/protocol.DomainPluginService/Shutdown", (const ubyte[] _) => encode(ShutdownResponse(true)));
     server.registerHandler("/protocol.DomainPluginService/ConfigSchema", (const ubyte[] _) => encode(Empty()));
     server.registerHandler("/protocol.DomainPluginService/RegisterElements", (const ubyte[] _) => encode(Empty()));
     server.registerHandler("/protocol.DomainPluginService/ExecuteJob", (const ubyte[] _) {
@@ -451,13 +452,19 @@ unittest {
 
     GrpcServer fake;
     fake.registerHandler("/protocol.ATSStoreService/GetAttestations", (const ubyte[] data) {
-        readOf ~= decode!GetAttestationsRequest(data).filter.predicates;
+        auto filter = decode!GetAttestationsRequest(data).filter;
+        // A read names where its range ends: nowhere.
+        assert(filter.unboundedEnd);
+        readOf ~= filter.predicates;
         GetAttestationsResponse resp;
         resp.success = true;
         return encode(resp);
     });
     fake.registerHandler("/protocol.ATSStoreService/GenerateAndCreateAttestation", (const ubyte[] data) {
         auto cmd = decode!GenerateAttestationRequest(data).command;
+        // A write names who made it, when, and its version, as either node reads them.
+        assert(cmd.actorsNamed.names == cmd.actors && cmd.actors[0] == "datapunt");
+        assert(cmd.now && cmd.versionFromRegistry);
         GenerateAttestationResponse resp;
         resp.success = keeps;
         if (!keeps) {

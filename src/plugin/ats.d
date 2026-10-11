@@ -20,6 +20,7 @@ string readKind(Store store, string kind, string predicate, out Record[] records
     req.filter.contexts = [kind];
     req.filter.timeStart = SINCE_MS;
     req.filter.limit = int.max;
+    req.filter.unboundedEnd = true;
 
     auto called = grpcCall(store.endpoint, "/protocol.ATSStoreService/GetAttestations", encode(req));
     if (called.error !is null) return called.error;
@@ -40,6 +41,9 @@ string write(Store store, string subject, string kind, string predicate, string[
     req.command.predicates = [predicate];
     req.command.contexts = [kind];
     req.command.actors = actors;
+    req.command.actorsNamed.names = actors;
+    req.command.now = true;
+    req.command.versionFromRegistry = true;
     req.command.attributes = encodeStruct(attributes);
     req.command.source = "datapunt";
 
