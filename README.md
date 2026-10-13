@@ -16,7 +16,9 @@ The core tests itself against `testdata/competitor.cue`, a test fixture:
 
     DATAPUNT_SCHEMAS=testdata/competitor.cue dub test --config=plugin
 
-CI runs that, vets the core alone, and builds the plugin.
+CI runs that, vets the core alone, and builds the plugin. A push to `main`
+is built by the node once those checks pass, and `ug tmux` shows how far it is
+behind datapunt's own name.
 `.github/workflows/test.yml` is emitted from `ci/test.nix`, never edited by
 hand, and CI fails when the two differ.
 
