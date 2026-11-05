@@ -12,8 +12,9 @@ enum OBSERVED = "datapunt:observed";
 /// subjects disagree.
 enum REFUSED = "datapunt:refused";
 
-/// A field a read asked of a subject that the schema does not hold: a question
-/// looking for a field. Written down, like a refusal, where the caller acts.
+/// A field a read asked of a subject: a question. One the schema does not hold
+/// is a question looking for a field; one it holds was answered, and is demand
+/// all the same. Written down, like a refusal, where the caller acts.
 enum WANTED = "datapunt:wanted";
 
 /// 2026-09-12T16:00:00Z, in Unix milliseconds. Older
@@ -313,7 +314,7 @@ private Answer byToken(string kind, Record[] records, Record[] refusals, Record[
 /// no longer stands was answered by a change to the schema.
 private Answer refusals(string kind, string prefix, Record[] refusedRecords) {
     size_t total;
-    auto rows = tally(refusedRecords, prefix, true, total);
+    auto rows = tally(refusedRecords, prefix, "value", total);
     string body = `{"kind":` ~ q(kind) ~ `,"rows":[`;
     size_t standing;
     foreach (i, ref x; rows) {
@@ -328,34 +329,61 @@ private Answer refusals(string kind, string prefix, Record[] refusedRecords) {
     return Answer(200, body ~ `],"observed":null,"of":null,"refused":` ~ num(total) ~ `,"standing":` ~ num(standing) ~ `,"wanted":null}`);
 }
 
-/// Every field a read of a kind asked for and the schema did not hold, most
-/// wanted first. A row stands while the kind still lacks the field.
+/// Every field a read of a kind asked for, held or not, most wanted first. A
+/// row stands while the kind still lacks the field.
 private Answer wants(string kind, string prefix, Record[] wantedRecords) {
     size_t total;
-    auto rows = tally(wantedRecords, prefix, false, total);
+    auto rows = tally(wantedRecords, prefix, "by", total);
     string body = `{"kind":` ~ q(kind) ~ `,"rows":[`;
     size_t standing;
     foreach (i, ref x; rows) {
-        immutable stands = declared(kind, x.field) is null;
+        immutable stands = !holds(kind, x.field);
         if (stands) standing++;
-        body ~= (i ? "," : "") ~ `{"field":` ~ q(x.field) ~ `,"says":` ~ q(x.says) ~ `,"times":` ~ num(x.times) ~
+        body ~= (i ? "," : "") ~ `{"field":` ~ q(x.field) ~ `,"by":` ~ q(x.value) ~ `,"says":` ~ q(x.says) ~ `,"times":` ~ num(x.times) ~
             `,"subjects":` ~ num(x.subjects.length) ~ `,"last":` ~ num(x.last) ~ `,"stands":` ~ (stands ? "true" : "false") ~
             `,"tokens":` ~ names(x.tokens) ~ `}`;
     }
     return Answer(200, body ~ `],"observed":null,"of":null,"refused":null,"standing":` ~ num(standing) ~ `,"wanted":` ~ num(total) ~ `}`);
 }
 
-/// What a read of one subject wanted that the schema does not hold, to be
-/// written down; nothing when it asked for what the schema holds. Judged by
-/// the rule observe refuses by: only a field the kind lacks is wanted.
-string[2][] wanted(string kind, string name, string field) {
-    if (name.length == 0 || field.length == 0) return null;
-    Refusal why;
-    if (!refuses(kind, field, "", why) || why.param != "field") return null;
-    return [["field", field], ["says", why.says]];
+// "successful reads are answered without an equivalent demand record."
+// "I want any"
+// "I want to see demand"
+// "I want to see what data is consequential where intelligence is being distributed"
+
+/// Any read, to be written down as what was asked and what it was answered.
+/// field is the field asked, or the prefix when none was, or empty for a whole
+/// kind; by is the by. A cell answered says whether it was observed; any other
+/// answer says answered, or the refusal's says. Nothing for a read of no kind:
+/// there is no kind to file it under.
+string[2][] wanted(string kind, string by, string name, string field, string prefix, Answer a) {
+    if (kind.length == 0) return null;
+    import std.json : parseJSON, JSONType;
+    string says = "answered";
+    try {
+        auto body_ = parseJSON(a.body);
+        if (a.status != 200) {
+            if (auto s = "says" in body_.object) says = s.str;
+        } else if (name.length > 0 && field.length > 0) {
+            says = body_["observed"].integer == 1 ? "observed" : "unobserved";
+        }
+    } catch (Exception) {
+        says = a.body;
+    }
+    import std.conv : to;
+    return [["field", field.length > 0 ? field : prefix], ["by", by], ["status", a.status.to!string], ["says", says]];
 }
 
-/// Refusals or wants of one field (and value, when byValue), gathered.
+/// Whether the kind holds this path: a field, a group of fields, or the whole
+/// kind when empty.
+private bool holds(string kind, string path) {
+    if (path.length == 0) return knownKind(kind);
+    foreach (ref f; fields) if (f.kind == kind && under(f.path, path)) return true;
+    return false;
+}
+
+/// Refusals or wants of one field, and of one value of the attribute named by
+/// second when one is, gathered.
 private struct Tally {
     string field;
     string value;
@@ -376,12 +404,16 @@ private string names(const string[] tokens) {
 
 /// Gathers records under a prefix into one tally per field, or per field and
 /// value, most first. The newest says what the row says.
-private Tally[] tally(Record[] records, string prefix, bool byValue, out size_t total) {
+private Tally[] tally(Record[] records, string prefix, string second, out size_t total) {
     Tally[] rows;
     foreach (ref r; records) {
         if (r.timestamp < SINCE_MS) continue;
-        auto field = attribute(r, "field"), value = byValue ? attribute(r, "value") : null;
-        if (field is null || !under(field, prefix)) continue;
+        // A read of a whole kind asked for no field, and is written with an
+        // empty one: present, and empty.
+        bool asked;
+        foreach (kv; r.attributes) if (kv[0] == "field") { asked = true; break; }
+        auto field = attribute(r, "field"), value = second.length > 0 ? attribute(r, second) : null;
+        if (!asked || !under(field, prefix)) continue;
         total++;
         Tally* row;
         foreach (ref x; rows) if (x.field == field && x.value == value) { row = &x; break; }
@@ -656,36 +688,59 @@ unittest {
         `],"observed":null,"of":null,"refused":2,"standing":2,"wanted":null}`);
 }
 
-// A read that asks for a field the schema does not hold is a question looking
-// for a field, and is written down as one.
+// Any read is a question: what was asked, and what it was answered.
+// "successful reads are answered without an equivalent demand record."
 unittest {
-    // One subject, a field not declared: what was wanted, and why not.
-    assert(wanted("competitor", "acme.nl", "cta.fax") ==
-        [["field", "cta.fax"], ["says", "no such field for competitor: cta.fax"]]);
-
-    // Not a question looking for a field: a kind the schema does not know, a
-    // read of no one subject, or of no field.
-    assert(wanted("vendor", "acme.nl", "cta.fax").length == 0);
-    assert(wanted("competitor", "", "cta.fax").length == 0);
-    assert(wanted("competitor", "acme.nl", "").length == 0);
-
-    // A field the schema holds is answered, observed or not: nothing wanted.
-    assert(wanted("competitor", "beta.nl", "cta.form").length == 0);
-    assert(wanted("competitor", "beta.nl", "login.audience").length == 0);
-
-    // Read back per field, most wanted first. A row stands while the kind
-    // still lacks the field; `cta.form` it has.
     enum t0 = SINCE_MS + 1000;
+    Record[] rs = [Record("acme.nl", t0, [["cta.form", "true"]])];
+    string[2][] ask(string kind, string by, string name, string field, string prefix) {
+        return wanted(kind, by, name, field, prefix, read(kind, by, name, field, prefix, rs));
+    }
+
+    // One subject, a field not declared: refused, and asked all the same.
+    assert(ask("competitor", "", "acme.nl", "cta.fax", "") ==
+        [["field", "cta.fax"], ["by", ""], ["status", "400"], ["says", "no such field for competitor: cta.fax"]]);
+
+    // One subject, a field declared: answered, observed or not.
+    assert(ask("competitor", "", "acme.nl", "cta.form", "") ==
+        [["field", "cta.form"], ["by", ""], ["status", "200"], ["says", "observed"]]);
+    assert(ask("competitor", "", "beta.nl", "cta.form", "") ==
+        [["field", "cta.form"], ["by", ""], ["status", "200"], ["says", "unobserved"]]);
+
+    // A subject, a column, a subtree, a whole kind: each asked.
+    assert(ask("competitor", "", "acme.nl", "", "", ) ==
+        [["field", ""], ["by", ""], ["status", "200"], ["says", "answered"]]);
+    assert(ask("competitor", "", "", "cta.form", "") ==
+        [["field", "cta.form"], ["by", ""], ["status", "200"], ["says", "answered"]]);
+    assert(ask("competitor", "field", "", "", "cta") ==
+        [["field", "cta"], ["by", "field"], ["status", "200"], ["says", "answered"]]);
+    assert(ask("competitor", "subject", "", "", "") ==
+        [["field", ""], ["by", "subject"], ["status", "200"], ["says", "answered"]]);
+
+    // A kind the schema does not know is asked for too; a read of no kind
+    // has nowhere to be filed.
+    assert(ask("vendor", "", "acme.nl", "url", "") ==
+        [["field", "url"], ["by", ""], ["status", "400"], ["says", "no such kind in the schema: vendor"]]);
+    assert(ask("", "", "acme.nl", "url", "").length == 0);
+
+    // Read back per field and by, most wanted first. A record from before
+    // 0.3.13 has no by, and is read as asked with none. A row stands while
+    // the kind holds neither the field nor a subtree of it; an empty field is
+    // the whole kind, which it holds.
     Record[] asked = [
-        Record("acme.nl", t0, [["field", "cta.fax"], ["says", "a"]]),
-        Record("acme.nl", t0 + 3, [["field", "cta.form"], ["says", "d"]]),
-        Record("beta.nl", t0 + 2, [["field", "cta.fax"], ["says", "b"]]),
+        Record("acme.nl", t0, [["field", "cta.fax"], ["by", ""], ["says", "a"]]),
+        Record("acme.nl", t0 + 3, [["field", "cta.form"], ["by", ""], ["says", "observed"]]),
+        Record("beta.nl", t0 + 2, [["field", "cta.fax"], ["by", ""], ["says", "b"]]),
         Record("acme.nl", t0 + 1, [["field", "cta.fax"], ["says", "c"]]),
+        Record("competitor", t0 + 4, [["field", ""], ["by", "subject"], ["says", "answered"]]),
+        Record("competitor", t0 + 5, [["field", "cta"], ["by", "field"], ["says", "answered"]]),
         Record("old.nl", SINCE_MS - 1, [["field", "cta.fax"], ["says", "old"]]),
     ];
     assert(read("competitor", "wanted", "", "", "", asked).body == `{"kind":"competitor","rows":[` ~
-        `{"field":"cta.fax","says":"b","times":3,"subjects":2,"last":` ~ num(t0 + 2) ~ `,"stands":true,"tokens":["no token"]},` ~
-        `{"field":"cta.form","says":"d","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false,"tokens":["no token"]}` ~
-        `],"observed":null,"of":null,"refused":null,"standing":1,"wanted":4}`);
+        `{"field":"cta.fax","by":"","says":"b","times":3,"subjects":2,"last":` ~ num(t0 + 2) ~ `,"stands":true,"tokens":["no token"]},` ~
+        `{"field":"cta.form","by":"","says":"observed","times":1,"subjects":1,"last":` ~ num(t0 + 3) ~ `,"stands":false,"tokens":["no token"]},` ~
+        `{"field":"","by":"subject","says":"answered","times":1,"subjects":1,"last":` ~ num(t0 + 4) ~ `,"stands":false,"tokens":["no token"]},` ~
+        `{"field":"cta","by":"field","says":"answered","times":1,"subjects":1,"last":` ~ num(t0 + 5) ~ `,"stands":false,"tokens":["no token"]}` ~
+        `],"observed":null,"of":null,"refused":null,"standing":1,"wanted":6}`);
     assert(read("competitor", "wanted", "", "", "login", asked).body == `{"kind":"competitor","rows":[],"observed":null,"of":null,"refused":null,"standing":0,"wanted":0}`);
 }
