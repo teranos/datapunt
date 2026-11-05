@@ -42,6 +42,51 @@ package datapunt
 // kind -> what it carries.
 schema: [=~"^[a-z][a-z0-9_]*$"]: #Kind
 
+// "Datapunt is the Pixel"
+// "One web analytics pixel is one datapunt"
+// "A visit is for datapunt to observe"
+// "CUE allows even web Analytics Pixels to be dynamically defined"
+//
+// A pixel answers on /d/{market}/{slug} for a site that embeds it. What its
+// snippet may say is declared here: the events it may name, beyond page_view,
+// and the fields it may attach. A pixel is a kind too: its subject is the
+// page, and every arrival carries what every analytics tool agrees on.
+#Pixel: {
+	events: [...#Event]
+	fields: {
+		[=~"^[a-z][a-z0-9_]*$"]: #Field | #Group
+	}
+}
+
+// An event a snippet names. Not one of datapunt's own statements, which share
+// the predicate's vocabulary, and not the page view every pixel takes.
+#Event: =~"^[a-z][a-z0-9_]*$" & !="observed" & !="refused" & !="wanted" & !="created" & !="deleted" & !="page_view"
+
+// pixel -> what its snippet may say.
+pixels: [=~"^[a-z][a-z0-9_]*$"]: #Pixel
+
+// What every arrival carries, under the names every tool and every ad
+// platform already uses (QNTX's protocol.Arrival).
+#arrival: {
+	path:            s
+	visitor:         s
+	visit:           s
+	referrer_domain: s
+	referrer_path:   s
+	utm_source:      s
+	utm_medium:      s
+	utm_campaign:    s
+	utm_content:     s
+	utm_term:        s
+}
+
+for name, p in pixels {
+	schema: (name): {
+		identity: "path"
+		fields: #arrival & p.fields
+	}
+}
+
 // The idiom, as a company's file writes it: `url: s`, `login: present: b`,
 // and `#Enum & {values: [...]}` for an enum.
 b: #Plain & {type: "bool"}
@@ -94,8 +139,17 @@ kinds: [
 	},
 ]
 
+// Every pixel with the events its snippet may name, page_view first.
+pixelList: [
+	for name, p in pixels {
+		"name": name
+		events: ["page_view"] + p.events
+	},
+]
+
 // The one object wind writes: `cue export ./schema -e export`.
 export: {
 	"fields": fields
 	"kinds":  kinds
+	"pixels": pixelList
 }

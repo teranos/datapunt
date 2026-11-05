@@ -24,7 +24,7 @@ in
 
   jobs.test = {
     runs-on = "ubuntu-latest";
-    env.DATAPUNT_SCHEMAS = "testdata/competitor.cue";
+    env.DATAPUNT_SCHEMAS = "testdata/competitor.cue testdata/pixel.cue";
     steps = [
       { uses = "actions/checkout@v5"; }
       { uses = "cachix/install-nix-action@v31.11.1"; }

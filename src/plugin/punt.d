@@ -2,7 +2,7 @@
 /// Nothing here reaches the store: service.d reads, this decides, service.d writes.
 module plugin.punt;
 
-import schema : fields, kinds, Field;
+import schema : fields, kinds, pixels, Field;
 
 /// What kind of statement an observation is.
 enum OBSERVED = "datapunt:observed";
@@ -63,6 +63,12 @@ const(Field)* declared(string kind, string path) {
 bool knownKind(string kind) {
     foreach (k; kinds) if (k.name == kind) return true;
     return false;
+}
+
+string[] pixelNames() {
+    string[] names;
+    foreach (p; pixels) names ~= p.name;
+    return names;
 }
 
 string[] kindNames() {
@@ -189,6 +195,36 @@ Answer read(string kind, string by, string name, string field, string prefix, Re
     }
 
     return refused("missing", "by", "read of a whole kind needs by: subject, field, token, refused or wanted");
+}
+
+// ---------------------------------------------------------------------------
+// pixel: what a web analytics datapunt's snippet may say
+// ---------------------------------------------------------------------------
+
+// "Datapunt is the Pixel"
+// "One web analytics pixel is one datapunt"
+
+/// Every pixel, or the one named: the events its snippet may name, page_view
+/// first, and every field an arrival may carry, as its kind declares them.
+/// The node answers /d/{market}/{slug} by this.
+Answer pixel(string name) {
+    string[] rows;
+    foreach (ref p; pixels) {
+        if (name.length > 0 && p.name != name) continue;
+        string events, fs;
+        foreach (i, e; p.events) events ~= (i ? "," : "") ~ q(e);
+        size_t n;
+        foreach (ref f; declaredFor(p.name)) {
+            fs ~= (n++ ? "," : "") ~ `{"field":` ~ q(f.path) ~ `,"type":` ~ q(f.type);
+            if (f.type == "enum") fs ~= `,"values":` ~ names(f.values);
+            fs ~= `}`;
+        }
+        rows ~= `{"pixel":` ~ q(p.name) ~ `,"events":[` ~ events ~ `],"fields":[` ~ fs ~ `]}`;
+    }
+    if (name.length > 0 && rows.length == 0) return refused("not one of", "pixel", "no such pixel in the schema: " ~ name);
+    string body = `{"rows":[`;
+    foreach (i, r; rows) body ~= (i ? "," : "") ~ r;
+    return Answer(200, body ~ `]}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -743,4 +779,23 @@ unittest {
         `{"field":"cta","by":"field","says":"answered","times":1,"subjects":1,"last":` ~ num(t0 + 5) ~ `,"stands":false,"tokens":["no token"]}` ~
         `],"observed":null,"of":null,"refused":null,"standing":1,"wanted":6}`);
     assert(read("competitor", "wanted", "", "", "login", asked).body == `{"kind":"competitor","rows":[],"observed":null,"of":null,"refused":null,"standing":0,"wanted":0}`);
+}
+
+// What the node answers a pixel by.
+unittest {
+    assert(pixel("").status == 200);
+    auto site = pixel("site");
+    assert(site.status == 200, site.body);
+    // In the order the schema declares them: what every arrival carries, then the pixel's own.
+    assert(site.body == `{"rows":[{"pixel":"site","events":["page_view","contact_click","signup"],"fields":[` ~
+        `{"field":"path","type":"string"},{"field":"visitor","type":"string"},{"field":"visit","type":"string"},` ~
+        `{"field":"referrer_domain","type":"string"},{"field":"referrer_path","type":"string"},` ~
+        `{"field":"utm_source","type":"string"},{"field":"utm_medium","type":"string"},{"field":"utm_campaign","type":"string"},` ~
+        `{"field":"utm_content","type":"string"},{"field":"utm_term","type":"string"},` ~
+        `{"field":"plan","type":"enum","values":["free","pro"]}]}]}`, site.body);
+    assert(pixel("competitor").body == `{"why":"not one of","param":"pixel","says":"no such pixel in the schema: competitor"}`);
+
+    // A pixel is a kind: what it observes reads like any other.
+    assert(read("site", "field", "", "", "utm", []).status == 400);
+    assert(read("site", "field", "", "", "", []).status == 200);
 }

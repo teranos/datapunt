@@ -2,7 +2,7 @@
   "jobs": {
     "test": {
       "env": {
-        "DATAPUNT_SCHEMAS": "testdata/competitor.cue"
+        "DATAPUNT_SCHEMAS": "testdata/competitor.cue testdata/pixel.cue"
       },
       "runs-on": "ubuntu-latest",
       "steps": [

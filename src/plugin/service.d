@@ -18,7 +18,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.13-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.14-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -139,6 +139,15 @@ Signum signum() {
                 Field("value", "The value written."),
             ],
             Endpoint("POST", "/api/datapunt/observe")),
+        Sigil("pixel",
+            "What a pixel's snippet may say: one web analytics pixel is one datapunt, answering on /d/{market}/{slug}. Name a pixel for its own; name none for every pixel. Each is a kind, and what it observes is read like any other.",
+            [
+                Param("pixel", "One pixel, by its name in the schema.", false, pixelNames()),
+            ],
+            [
+                Field("rows", "One row per pixel: its name, the events its snippet may name, page_view first, and every field an arrival may carry, with its type and, for an enum, its values."),
+            ],
+            Endpoint("GET", "/api/datapunt/pixel")),
         Sigil("cue",
             "The CUE language reference, from the source of the cue the schema was checked with: " ~ CUE_VERSION ~
             ". Name no section for every heading; name one for its text.",
@@ -162,6 +171,8 @@ Answer handleHTTP(ref const HTTPRequest req) {
 
     // The reference is compiled in and reaches no store.
     if (req.method == "GET" && path == "/cue") return cue(parseQuery(query).get("section", ""));
+    // So is what a pixel may say.
+    if (req.method == "GET" && path == "/pixel") return pixel(parseQuery(query).get("pixel", ""));
 
     Store call;
     if (auto why = callStore(req, call)) return failed(why);
@@ -352,8 +363,10 @@ unittest {
 
     // The signum names every kind and every field it takes.
     auto s = signum();
-    assert(s.name == "datapunt" && s.sigils.length == 3);
-    assert(s.sigils[2].http.path == "/api/datapunt/cue");
+    assert(s.name == "datapunt" && s.sigils.length == 4);
+    assert(s.sigils[2].http.path == "/api/datapunt/pixel");
+    assert(s.sigils[2].takes[0].oneOf == ["site"]);
+    assert(s.sigils[3].http.path == "/api/datapunt/cue");
     import std.algorithm : canFind;
     assert(s.sigils[0].takes[0].oneOf.canFind("competitor"));
     assert(s.sigils[1].http.path == "/api/datapunt/observe");
@@ -432,7 +445,15 @@ unittest {
 
     // The reference answers what cue says it gives, with or without a section,
     // and needs no store token.
-    auto cueGives = names(s.sigils[2].gives);
+    // What a pixel may say needs no store token either.
+    auto pixelGives = names(s.sigils[2].gives);
+    HTTPRequest px;
+    px.method = "GET";
+    px.path = "/pixel?pixel=site";
+    auto site = handleHTTP(px);
+    assert(site.status == 200 && keys(site.body) == pixelGives, site.body);
+
+    auto cueGives = names(s.sigils[3].gives);
     HTTPRequest r;
     r.method = "GET";
     r.path = "/cue";
