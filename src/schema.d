@@ -18,6 +18,13 @@ struct Kind {
     string identity;
 }
 
+/// A pixel: one web analytics datapunt, and the events its snippet may name,
+/// page_view first. Its fields are its kind's.
+struct Pixel {
+    string name;
+    string[] events;
+}
+
 private struct Cursor {
     string s;
     size_t i;
@@ -188,6 +195,52 @@ Kind[] parseKinds(string json) {
     return out_;
 }
 
+private Pixel pixelEntry(ref Cursor c) {
+    Pixel p;
+    ws(c);
+    if (c.i >= c.s.length || c.s[c.i] != '{') return p;
+    c.i++;
+    while (c.i < c.s.length) {
+        ws(c);
+        if (c.i < c.s.length && c.s[c.i] == '}') { c.i++; break; }
+        if (c.i < c.s.length && c.s[c.i] == ',') { c.i++; continue; }
+        immutable key = str(c);
+        ws(c);
+        if (c.i < c.s.length && c.s[c.i] == ':') c.i++;
+        if (key == "name") p.name = str(c);
+        else if (key == "events") p.events = strList(c);
+        else skip(c);
+    }
+    return p;
+}
+
+Pixel[] parsePixels(string json) {
+    Pixel[] out_;
+    auto c = Cursor(json, 0);
+    // The key and its colon: a kind or a field named pixels is a value, and
+    // a value is followed by a comma or a close, never a colon.
+    immutable at = indexOfKey(json, "\"pixels\":");
+    if (at < 0) return out_;
+    c.i = at + 9;
+    ws(c);
+    if (c.i >= c.s.length || c.s[c.i] != '[') return out_;
+    c.i++;
+    while (c.i < c.s.length) {
+        ws(c);
+        if (c.i < c.s.length && c.s[c.i] == ']') break;
+        if (c.i < c.s.length && c.s[c.i] == ',') { c.i++; continue; }
+        out_ ~= pixelEntry(c);
+    }
+    return out_;
+}
+
+unittest {
+    auto ps = parsePixels(`{"fields":[{"kind":"pixels","path":"a","type":"string"}],"kinds":[],"pixels": [{"name":"site","events":["page_view","signup"]}]}`);
+    assert(ps.length == 1 && ps[0].name == "site" && ps[0].events == ["page_view", "signup"]);
+    assert(parsePixels(`{"fields":[],"kinds":[]}`).length == 0);
+}
+
 // The whole point: parsed by the compiler, baked in as static data.
 enum fields = parseSchema(import(".ctfe/schema.json"));
 enum kinds = parseKinds(import(".ctfe/schema.json"));
+enum pixels = parsePixels(import(".ctfe/schema.json"));

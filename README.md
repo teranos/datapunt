@@ -12,9 +12,17 @@ their own files of package `datapunt`, and `wind` unifies those files.
 `wind` is the check and the export: `DATAPUNT_SCHEMAS` names the company
 files, and `dub build --config=plugin` runs it first.
 
-The core tests itself against `testdata/competitor.cue`, a test fixture:
+The core tests itself against `testdata/competitor.cue` and
+`testdata/pixel.cue`, test fixtures:
 
-    DATAPUNT_SCHEMAS=testdata/competitor.cue dub test --config=plugin
+    DATAPUNT_SCHEMAS="testdata/competitor.cue testdata/pixel.cue" dub test --config=plugin
+
+A pixel is one web analytics datapunt, answering on `/d/{market}/{slug}`. A
+company's file declares it under `pixels`: the events its snippet may name
+beyond `page_view`, and the fields it may attach. Every pixel is a kind as
+well, whose subject is the page and whose arrivals carry what every analytics
+tool agrees on. The `pixel` sigil says all of it to the node. A schema change
+is approved by merging it.
 
 CI runs that, vets the core alone, and builds the plugin. A push to `main`
 is built by the node once those checks pass, and `ug tmux` shows how far it is
