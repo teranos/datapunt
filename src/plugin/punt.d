@@ -12,8 +12,9 @@ enum OBSERVED = "datapunt:observed";
 /// subjects disagree.
 enum REFUSED = "datapunt:refused";
 
-/// A field a read asked of a subject that the schema does not hold: a question
-/// looking for a field. Written down, like a refusal, where the caller acts.
+/// A field a read asked of a subject: a question. One the schema does not hold
+/// is a question looking for a field; one it holds was answered, and is demand
+/// all the same. Written down, like a refusal, where the caller acts.
 enum WANTED = "datapunt:wanted";
 
 /// 2026-09-12T16:00:00Z, in Unix milliseconds. Older
@@ -328,8 +329,8 @@ private Answer refusals(string kind, string prefix, Record[] refusedRecords) {
     return Answer(200, body ~ `],"observed":null,"of":null,"refused":` ~ num(total) ~ `,"standing":` ~ num(standing) ~ `,"wanted":null}`);
 }
 
-/// Every field a read of a kind asked for and the schema did not hold, most
-/// wanted first. A row stands while the kind still lacks the field.
+/// Every field a read of a kind asked for, held or not, most wanted first. A
+/// row stands while the kind still lacks the field.
 private Answer wants(string kind, string prefix, Record[] wantedRecords) {
     size_t total;
     auto rows = tally(wantedRecords, prefix, false, total);
@@ -345,14 +346,21 @@ private Answer wants(string kind, string prefix, Record[] wantedRecords) {
     return Answer(200, body ~ `],"observed":null,"of":null,"refused":null,"standing":` ~ num(standing) ~ `,"wanted":` ~ num(total) ~ `}`);
 }
 
-/// What a read of one subject wanted that the schema does not hold, to be
-/// written down; nothing when it asked for what the schema holds. Judged by
-/// the rule observe refuses by: only a field the kind lacks is wanted.
-string[2][] wanted(string kind, string name, string field) {
-    if (name.length == 0 || field.length == 0) return null;
+// "successful reads are answered without an equivalent demand record."
+
+/// What a read of one subject wanted, to be written down. A field the kind
+/// lacks says why the schema does not hold it, by the rule observe refuses by;
+/// a field it holds was answered, and says whether it was observed of that
+/// subject. Nothing for a kind the schema does not know, or a read of no one
+/// subject or no field.
+string[2][] wanted(string kind, string name, string field, Record[] kindRecords) {
+    if (name.length == 0 || field.length == 0 || !knownKind(kind)) return null;
     Refusal why;
-    if (!refuses(kind, field, "", why) || why.param != "field") return null;
-    return [["field", field], ["says", why.says]];
+    if (refuses(kind, field, "", why) && why.param == "field") return [["field", field], ["says", why.says]];
+    auto held = newestBySubject(kindRecords);
+    bool seen;
+    if (auto r = name in held) seen = attribute(*r, field) !is null;
+    return [["field", field], ["says", seen ? "observed" : "unobserved"]];
 }
 
 /// Refusals or wants of one field (and value, when byValue), gathered.
