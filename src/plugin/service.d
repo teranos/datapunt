@@ -18,7 +18,7 @@ enum PLUGIN_NAME = "datapunt";
 
 // The schema is compiled in, so it is part of the version: a changed schema is
 // a version the release workflow has not published yet.
-enum PLUGIN_VERSION = "0.3.12-" ~ schemaDigest(import(".ctfe/schema.json"));
+enum PLUGIN_VERSION = "0.3.13-" ~ schemaDigest(import(".ctfe/schema.json"));
 
 /// FNV-1a, 64 bits, as 16 hex digits. Computed by the compiler.
 string schemaDigest(string schema) {
@@ -106,22 +106,22 @@ Signum signum() {
     s.name = PLUGIN_NAME;
     s.sigils = [
         Sigil("read",
-            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name a field and no subject for its value of every subject; name neither and say by subject or by field for coverage across the kind, by token for who observed it, by refused for what the schema would not hold, or by wanted for what was asked of it that it does not hold. Asking one subject for a field the schema does not hold is refused, and the question is written down.",
+            "What is observed. Name a subject for what is unobserved of it, and a field for its value; name a field and no subject for its value of every subject; name neither and say by subject or by field for coverage across the kind, by token for who observed it, by refused for what the schema would not hold, or by wanted for what was asked of it. Any read is written down as a question: what was asked, and what it was answered. Asking one subject for a field the schema does not hold is refused, and written down all the same.",
             [
                 kind,
-                Param("by", "For a whole kind: coverage per subject, or per field, fullest first; every observation per token it was asked with, and the OAuth client that token was issued through, by the day; the refusals, per field and value, most refused first; or the fields asked for that the schema does not hold, most wanted first.", false, ["subject", "field", "token", "refused", "wanted"]),
+                Param("by", "For a whole kind: coverage per subject, or per field, fullest first; every observation per token it was asked with, and the OAuth client that token was issued through, by the day; the refusals, per field and value, most refused first; or every field, prefix or whole kind asked for, per by, held or not, most wanted first.", false, ["subject", "field", "token", "refused", "wanted"]),
                 Param("name", "One subject, by its name."),
                 Param("field", "One field, by its dotted path: of that subject, or of every subject when none is named."),
                 Param("prefix", "With by field, refused or wanted: one subtree, as the schema nests it."),
             ],
             [
                 Field("kind", "The kind that was read."),
-                Field("rows", "One row per subject, per field, or the one value, as asked. A field of every subject is one row per subject with its value. By token, one row per token: its name, its client's DID or null, how many observations of how many subjects, the first and last in Unix milliseconds, days as [UTC day start, count] for every day it observed on, and how often the schema refused it and how often it asked for a field the schema does not hold. By refused or wanted, each row names the tokens that made it."),
+                Field("rows", "One row per subject, per field, or the one value, as asked. A field of every subject is one row per subject with its value. By token, one row per token: its name, its client's DID or null, how many observations of how many subjects, the first and last in Unix milliseconds, days as [UTC day start, count] for every day it observed on, and how often the schema refused it and how often it read. By refused or wanted, each row names the tokens that made it; by wanted, the by it was asked with, empty field for a whole kind, and what the newest was answered."),
                 Field("observed", "How many of the cells asked about are observed. By token, how many observations there are."),
                 Field("of", "How many cells were asked about."),
                 Field("refused", "By refused or by token: how many refusals were read."),
                 Field("standing", "By refused or wanted: how many rows the schema as compiled would still refuse."),
-                Field("wanted", "By wanted or by token: how many questions were read."),
+                Field("wanted", "By wanted or by token: how many questions were read. Every read is a question."),
             ],
             Endpoint("GET", "/api/datapunt/read")),
         Sigil("observe",
@@ -168,19 +168,14 @@ Answer handleHTTP(ref const HTTPRequest req) {
 
     if (req.method == "GET" && path == "/read") {
         auto sent = parseQuery(query);
-        auto kind = sent.get("kind", ""), name = sent.get("name", ""), field = sent.get("field", "");
-        Record[] records, refusals, questions;
-        if (auto why = readKind(call, kind, predicateFor(sent.get("by", "")), records)) return failed(why);
-        // Who observed is also who misattested: by token reads all three.
-        if (sent.get("by", "") == "token") {
-            if (auto why = readKind(call, kind, REFUSED, refusals)) return failed(why);
-            if (auto why = readKind(call, kind, WANTED, questions)) return failed(why);
-        }
-        auto a = read(kind, sent.get("by", ""), name, field, sent.get("prefix", ""), records, refusals, questions);
-        // The caller is answered either way. A question the store would not
-        // keep is the node's fault, and the log says what.
-        if (auto w = wantedRecord(kind, name, field))
-            if (auto why = write(call, name, kind, WANTED, w, actorsOf(req)))
+        auto kind = sent.get("kind", ""), by = sent.get("by", ""), name = sent.get("name", "");
+        auto field = sent.get("field", ""), prefix = sent.get("prefix", "");
+        auto a = readAnswer(call, kind, by, name, field, prefix);
+        // Any read is demand, answered or not. The caller is answered either
+        // way; a question the store would not keep is the node's fault, and
+        // the log says what.
+        if (auto w = wantedRecord(kind, by, name, field, prefix, a))
+            if (auto why = write(call, name.length > 0 ? name : kind, kind, WANTED, w, actorsOf(req)))
                 logError("[datapunt] the question was not written: %s", why);
         return a;
     }
@@ -220,10 +215,22 @@ string predicateFor(string by) {
     return OBSERVED;
 }
 
-/// What to write for a read that asked for a field the schema does not hold:
-/// what was wanted, and the schema that did not hold it. Nothing otherwise.
-string[2][] wantedRecord(string kind, string name, string field) {
-    auto w = wanted(kind, name, field);
+/// What one read answers, from the statements its by names.
+private Answer readAnswer(Store call, string kind, string by, string name, string field, string prefix) {
+    Record[] records, refusals, questions;
+    if (auto why = readKind(call, kind, predicateFor(by), records)) return failed(why);
+    // Who observed is also who misattested and who asked: by token reads all three.
+    if (by == "token") {
+        if (auto why = readKind(call, kind, REFUSED, refusals)) return failed(why);
+        if (auto why = readKind(call, kind, WANTED, questions)) return failed(why);
+    }
+    return read(kind, by, name, field, prefix, records, refusals, questions);
+}
+
+/// What to write for any read: what was asked, what it was answered, and the
+/// schema that answered it. Nothing for a read of no kind.
+string[2][] wantedRecord(string kind, string by, string name, string field, string prefix, Answer a) {
+    auto w = wanted(kind, by, name, field, prefix, a);
     if (w.length > 0) w ~= ["schema", PLUGIN_VERSION];
     return w;
 }
@@ -357,10 +364,12 @@ unittest {
     assert(predicateFor("refused") == REFUSED);
     assert(predicateFor("wanted") == WANTED);
 
-    // A question the schema cannot hold is written with the schema that could not.
-    assert(wantedRecord("competitor", "acme.nl", "cta.fax") ==
-        [["field", "cta.fax"], ["says", "no such field for competitor: cta.fax"], ["schema", PLUGIN_VERSION]]);
-    assert(wantedRecord("competitor", "acme.nl", "cta.form").length == 0);
+    // Any read is written with the schema that answered it.
+    assert(wantedRecord("competitor", "", "acme.nl", "cta.fax", "", read("competitor", "", "acme.nl", "cta.fax", "", null)) ==
+        [["field", "cta.fax"], ["by", ""], ["status", "400"], ["says", "no such field for competitor: cta.fax"], ["schema", PLUGIN_VERSION]]);
+    assert(wantedRecord("competitor", "", "acme.nl", "cta.form", "", read("competitor", "", "acme.nl", "cta.form", "", null)) ==
+        [["field", "cta.form"], ["by", ""], ["status", "200"], ["says", "unobserved"], ["schema", PLUGIN_VERSION]]);
+    assert(wantedRecord("", "", "", "", "", Answer(400, "{}")).length == 0);
 
     // An unknown path is a 404 that says which.
     HTTPRequest unknown;
@@ -524,23 +533,28 @@ unittest {
     assert(get("kind=competitor&name=acme.nl&field=cta.fax").status == 400);
     assert(wrote.length == 4);
     assert(wrote[3].predicate == WANTED && wrote[3].subject == "acme.nl" && wrote[3].kind == "competitor");
-    assert(wrote[3].attributes == [["field", "cta.fax"], ["says", "no such field for competitor: cta.fax"], ["schema", PLUGIN_VERSION]]);
+    assert(wrote[3].attributes == [["field", "cta.fax"], ["by", ""], ["status", "400"],
+        ["says", "no such field for competitor: cta.fax"], ["schema", PLUGIN_VERSION]]);
 
-    // One it can hold is answered, and nothing written.
+    // One it can hold is answered, and written all the same.
     assert(get("kind=competitor&name=acme.nl&field=cta.form").status == 200);
-    assert(wrote.length == 4);
+    assert(wrote.length == 5 && wrote[4].predicate == WANTED && wrote[4].subject == "acme.nl");
+    assert(wrote[4].attributes == [["field", "cta.form"], ["by", ""], ["status", "200"], ["says", "unobserved"], ["schema", PLUGIN_VERSION]]);
 
-    // Each by reads its own statements.
+    // Each by reads its own statements, and is written as asked of the kind.
     readOf = null;
     get("kind=competitor&by=field");
     get("kind=competitor&by=refused");
     get("kind=competitor&by=wanted");
     assert(readOf == [OBSERVED, REFUSED, WANTED]);
+    assert(wrote.length == 8 && wrote[5].subject == "competitor" && wrote[5].kind == "competitor");
+    assert(wrote[5].attributes == [["field", ""], ["by", "field"], ["status", "200"], ["says", "answered"], ["schema", PLUGIN_VERSION]]);
+    assert(wrote[7].attributes[1] == ["by", "wanted"]);
 
     // A store that will not keep a refusal or a question does not change the
     // caller's answer.
     keeps = false;
     assert(post(`{"kind":"competitor","name":"acme.nl","field":"login.audience","value":"everyone"}`) == everyone);
     assert(get("kind=competitor&name=acme.nl&field=cta.fax").status == 400);
-    assert(wrote.length == 4);
+    assert(wrote.length == 8);
 }
